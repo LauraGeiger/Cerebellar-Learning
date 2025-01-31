@@ -5,8 +5,6 @@ import matplotlib.animation as animation
 import matplotlib.widgets as button
 import networkx as nx
 
-
-
 class STDP: # Spike timing dependent plasticity
     def __init__(self, netcon):
         self.netcon = netcon
