@@ -48,7 +48,7 @@ class STDP: # Spike timing dependent plasticity
             self.weight = max(0, min(self.weight, max_weight))  # Keep weight within limits
             self.netcon.weight[0] = self.weight
             self.weight_changes.append((h.t, self.weight))
-#'''
+'''
 # Create pre- and post-synaptic neurons
 pre_neuron = h.Section(name='pre_neuron')
 post_neuron = h.Section(name='post_neuron')
@@ -151,6 +151,7 @@ t_np = np.array(t)
 v_pre_np = np.array(v_pre)
 v_post_np = np.array(v_post)
 weights = np.array(stdp.weight_changes)
+print(stdp.weight_changes)
 
 print(f"size t_np: {len(t_np)}, size weights: {len(weights)}")
 
@@ -184,7 +185,7 @@ else:
 
 #plt.tight_layout()
 plt.show()
-#'''
+'''
 
 '''
 # --- Create Granule Cell Class ---
@@ -371,7 +372,9 @@ environment = {1:1, 2:3, 3:5} # "state:PC_ID" environment maps object_ID/state t
 tau_plus = 20  
 tau_minus = 20  
 A_plus = 0.005  
-A_minus = 0.005  
+A_minus = 0.005
+dt_LTP = 10  # Time window for LTP (ms)
+dt_LTD = -10  # Time window for LTD (ms)
 initial_weight = 0.01
 max_weight = 0.1
 min_weight = 0.001
@@ -408,18 +411,22 @@ inferior_olive = InferiorOliveCell()
 # --- Create Synapses and Connections ---
 synapses = []
 netcons = []
+error = False
 weights = {}
-error = True
+#for granule in granule_cells:
+#    for purkinje in purkinje_cells:
+#        weights[(granule.gid, purkinje.gid)] = {"times": [], "weights": []}
+
 
 # Granule → Purkinje Connections (excitatory)
 for granule in granule_cells:
     for purkinje in purkinje_cells:
         syn = h.ExpSyn(purkinje.soma(0.5))
         syn.e = 0
-        syn.tau = 2
+        #syn.tau = 2
         nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
         nc.weight[0] = initial_weight + np.random.uniform(0,0.001)
-        nc.delay = 5
+        nc.delay = 3
         synapses.append(syn)
         netcons.append(nc)
         weights[(granule.gid, purkinje.gid)] = nc.weight[0]
@@ -428,7 +435,7 @@ for granule in granule_cells:
 for purkinje in purkinje_cells:
     syn = h.ExpSyn(purkinje.soma(0.5))
     syn.e = -70  # Inhibitory reversal potential
-    syn.tau = 5
+    syn.tau = 3
     nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
     #nc.weight[0] = initial_weight
     nc.delay = 3
@@ -437,12 +444,12 @@ for purkinje in purkinje_cells:
     #weights[("IO", purkinje.gid)] = initial_weight
 
 # --- STDP Update Function ---
-def update_weights(pre_gid, post_gid, delta_t):
-    if delta_t > 0:  
+def update_weights(pre_gid, post_gid, delta_t, t):
+    if delta_t > 0 and delta_t < dt_LTP:  
         dw = A_plus * np.exp(-delta_t / tau_plus)
-    else:  
+    elif delta_t < 0 and delta_t > dt_LTD:  
         dw = -A_minus * np.exp(delta_t / tau_minus)
-    
+    else: dw = 0
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
 
@@ -463,6 +470,11 @@ elif state == 2:
 elif state == 3:
     stim = h.IClamp(granule_cells[2].soma(0.5))
     stim.delay = 1
+    stim.dur = 1
+    stim.amp = 0.5
+    stimuli.append(stim)
+    stim = h.IClamp(granule_cells[2].soma(0.5))
+    stim.delay = 30
     stim.dur = 1
     stim.amp = 0.5
     stimuli.append(stim)
@@ -505,37 +517,50 @@ weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) 
 
 # --- Run Simulation ---
 h.finitialize(-65)
-#h.continuerun(1)
+
+# Initialize a dictionary to store the processed spike pairs for each (pre_id, post_id)
+processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) }
 
 # Continuously run the simulation and update weights during the simulation
-while h.t < 20:
+while h.t < 50:
     h.continuerun(h.t + 1)  # Incrementally run the simulation
+    
     # --- Apply STDP ---
     for pre_id in range(num_granule):
         for post_id in range(num_purkinje):
-            if granule_spikes[pre_id].size() > 0 and purkinje_spikes[post_id].size() > 0:  
-                # Get the last spike times
-                pre_t = granule_spikes[pre_id][-1]
-                post_t = purkinje_spikes[post_id][-1]
-
-                # Ensure we update the weight only once per spike pair
-                delta_t = post_t - pre_t
-                update_weights(pre_id, post_id, delta_t)
-
-                # Track the weight at the current time step
-                weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
-            '''
             for pre_t in granule_spikes[pre_id]:
                 for post_t in purkinje_spikes[post_id]:
-                    delta_t = post_t - pre_t
-                    update_weights(pre_id, post_id, delta_t)
+                    if (pre_t, post_t) not in processed_pairs[(pre_id, post_id)]:
+                        delta_t = post_t - pre_t
+                        update_weights(pre_id, post_id, delta_t, h.t)
+                        print(f"update weights for pre_id {pre_id} post_id {post_id} pre_t {pre_t} post_t {post_t}")
+                        processed_pairs[(pre_id, post_id)].add((pre_t, post_t))
 
+                
+                '''
+                # Now, manually trigger a spike in the Purkinje cell with the highest weight
+                if max_purkinje_id is not None:
+                    # You can directly set the spike time or use the NetCon to generate the spike
+                    spike_time = h.t + np.random.uniform(0.5, 2.0)  # Randomize the spike time slightly
+                    purkinje_spikes[max_purkinje_id].append(spike_time)
+                    print(f"Granule Cell {pre_id+1} triggered a spike in Purkinje Cell {max_purkinje_id+1} at time {spike_time}")
+                '''
             # Track the weight at the current time step
             while len(weights_over_time[(pre_id, post_id)]) < len(t):
                 weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
-            '''
-
-
+    
+        # After each granule spike, find the Purkinje cell with the highest weight
+        # Find the Purkinje cell with the maximum weight for this granule cell
+        '''
+        max_weight = -np.inf
+        max_purkinje_id = None
+        for post_id_ in range(num_purkinje):
+            weight_ = weights[(pre_id, post_id_)]
+            if weight_ > max_weight:
+                max_weight = weight_
+                max_purkinje_id = post_id_
+                print(f"Granule Cell {pre_id+1} triggered a spike in Purkinje Cell {max_purkinje_id+1} at time ")
+        '''
 # --- Convert Spike Data ---
 spike_times = {f"GC{i+1}": list(granule_spikes[i]) for i in range(num_granule)}
 spike_times.update({f"PC{i+1}": list(purkinje_spikes[i]) for i in range(num_purkinje)})
@@ -546,8 +571,6 @@ t_np = np.array(t)
 v_granule_np = np.array([vec.to_python() for vec in v_granule.values()])
 v_purkinje_np = np.array([vec.to_python() for vec in v_purkinje.values()])
 v_inferiorOlive_np = np.array(V_inferiorOlive.to_python())
-#weights_array = np.array([weights_over_time[(pre, post)] for pre in range(num_granule) for post in range(num_purkinje)])
-
 
 # --- Plot Voltage and Weight Traces ---
 fig1, axes = plt.subplots(2, num_granule, figsize=(5*num_granule, 8), sharex=True)
@@ -563,7 +586,6 @@ for gc_id in range(num_granule):
     ax1.plot(t_np, v_granule_np[gc_id], label=f"GC{gc_id+1}", color="blue")
     for pc_id in range(num_purkinje):
         ax1.plot(t_np, v_purkinje_np[pc_id], label=f"PC{pc_id+1}", linestyle="dashed")
-    #ax1.set_ylabel("Membrane Voltage (mV)")
     ax1.set_title(f"GC{gc_id+1} Spiking Activity")
     ax1.legend()
 
@@ -572,9 +594,8 @@ for gc_id in range(num_granule):
     for pc_id in range(num_purkinje):
         if len(weights_over_time[(gc_id, pc_id)]) > 0:
             ax2.plot(t_np, weights_over_time[(gc_id, pc_id)], label=f"PC{pc_id+1}")
-    
+
     ax2.set_xlabel("Time (ms)")
-    #ax2.set_ylabel("Synaptic Weight")
     ax2.set_title(f"GC{gc_id+1} Synaptic Weights")
     ax2.legend()
 
