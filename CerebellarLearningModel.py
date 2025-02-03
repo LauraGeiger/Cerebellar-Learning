@@ -2,8 +2,9 @@ from neuron import h, gui
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import matplotlib.widgets as button
 import networkx as nx
+
+from matplotlib.widgets import Button
 
 # using Python 3.8.20
 
@@ -429,7 +430,7 @@ for granule in granule_cells:
         nc.delay = 3
         synapses.append(syn)
         netcons.append(nc)
-        weights[(granule.gid, purkinje.gid)] = nc.weight[0]
+        weights[(granule.gid, purkinje.gid)] = nc.weight[0] 
 
 # Inferior Olive → Purkinje Connections (inhibitory)
 for purkinje in purkinje_cells:
@@ -443,6 +444,47 @@ for purkinje in purkinje_cells:
     netcons.append(nc)
     #weights[("IO", purkinje.gid)] = initial_weight
 
+
+
+# --- Stimulate Granule Cells Based on State ---
+stimuli = []
+if state == 1:   stim = h.IClamp(granule_cells[0].soma(0.5))
+elif state == 2: stim = h.IClamp(granule_cells[1].soma(0.5))
+elif state == 3: stim = h.IClamp(granule_cells[2].soma(0.5))
+stim.delay = 10
+stim.dur = 1
+stim.amp = 0.5
+stimuli.append(stim)
+
+def trigger_spike_at_highest_weight_PC(granule_gid, spike_time):
+    max_weight = -np.inf
+    best_purkinje = None
+
+    # Find the Purkinje cell with the highest weight
+    for purkinje in purkinje_cells:
+        weight = weights[(granule_gid, purkinje.gid)]
+        if weight > max_weight:
+            max_weight = weight
+            best_purkinje = purkinje
+
+    if best_purkinje:
+        # Inject a small current to trigger a spike
+        stim = h.IClamp(best_purkinje.soma(0.5))
+        stim.delay = spike_time + 1  # Small delay after spike
+        stim.dur = 1
+        stim.amp = 2
+        stimuli.append(stim)
+        print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {best_purkinje.gid+1} (weight {max_weight})")
+
+# Stimulate Inferior Olive if previous activated PC resulted in an error
+def trigger_spike_IO(event):
+    stim = h.IClamp(inferior_olive.soma(0.5))
+    stim.delay = h.t + 1
+    stim.dur = 1
+    stim.amp = 2
+    stimuli.append(stim)
+    print(f"Inferior Olive spike triggered at time {h.t + 1} ms")
+
 # --- STDP Update Function ---
 def update_weights(pre_gid, post_gid, delta_t, t):
     if delta_t > 0 and delta_t < dt_LTP:  
@@ -453,39 +495,8 @@ def update_weights(pre_gid, post_gid, delta_t, t):
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
 
-# --- Stimulate Cells Based on State ---
-stimuli = []
-if state == 1:
-    stim = h.IClamp(granule_cells[0].soma(0.5))
-    stim.delay = 1
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
-elif state == 2:
-    stim = h.IClamp(granule_cells[1].soma(0.5))
-    stim.delay = 1
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
-elif state == 3:
-    stim = h.IClamp(granule_cells[2].soma(0.5))
-    stim.delay = 1
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
-    stim = h.IClamp(granule_cells[2].soma(0.5))
-    stim.delay = 30
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
 
-# Stimulate Inferior Olive if previous activated PC resulted in an error
-if error == True:
-    stim_io = h.IClamp(inferior_olive.soma(0.5))
-    stim_io.delay = 1
-    stim_io.dur = 2
-    stim_io.amp = 0.5
-    error = False
+
 
 # --- Record Spiking Activity and Voltages---
 t = h.Vector().record(h._ref_t)
@@ -496,6 +507,7 @@ v_granule = {i: h.Vector().record(granule_cells[i].soma(0.5)._ref_v) for i in ra
 v_purkinje = {i: h.Vector().record(purkinje_cells[i].soma(0.5)._ref_v) for i in range(num_purkinje)}
 V_inferiorOlive = h.Vector().record(inferior_olive.soma(0.5)._ref_v)
 
+granule_spike_detectors = []
 for i, granule in enumerate(granule_cells):
     nc = h.NetCon(granule.soma(0.5)._ref_v, None, sec=granule.soma)
     nc.threshold = -20
@@ -525,6 +537,12 @@ processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) fo
 while h.t < 50:
     h.continuerun(h.t + 1)  # Incrementally run the simulation
     
+    # --- Trigger Purkinje Cell Spike ---
+    for pre_id in range(num_granule):
+        for pre_t in granule_spikes[pre_id]:
+            if pre_t > h.t -1:
+                trigger_spike_at_highest_weight_PC(pre_id, pre_t)
+
     # --- Apply STDP ---
     for pre_id in range(num_granule):
         for post_id in range(num_purkinje):
@@ -533,34 +551,13 @@ while h.t < 50:
                     if (pre_t, post_t) not in processed_pairs[(pre_id, post_id)]:
                         delta_t = post_t - pre_t
                         update_weights(pre_id, post_id, delta_t, h.t)
-                        print(f"update weights for pre_id {pre_id} post_id {post_id} pre_t {pre_t} post_t {post_t}")
+                        print(f"update weights for GC{pre_id+1} <-> PC{post_id+1} pre_t {pre_t} post_t {post_t}")
                         processed_pairs[(pre_id, post_id)].add((pre_t, post_t))
 
-                
-                '''
-                # Now, manually trigger a spike in the Purkinje cell with the highest weight
-                if max_purkinje_id is not None:
-                    # You can directly set the spike time or use the NetCon to generate the spike
-                    spike_time = h.t + np.random.uniform(0.5, 2.0)  # Randomize the spike time slightly
-                    purkinje_spikes[max_purkinje_id].append(spike_time)
-                    print(f"Granule Cell {pre_id+1} triggered a spike in Purkinje Cell {max_purkinje_id+1} at time {spike_time}")
-                '''
             # Track the weight at the current time step
             while len(weights_over_time[(pre_id, post_id)]) < len(t):
                 weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
-    
-        # After each granule spike, find the Purkinje cell with the highest weight
-        # Find the Purkinje cell with the maximum weight for this granule cell
-        '''
-        max_weight = -np.inf
-        max_purkinje_id = None
-        for post_id_ in range(num_purkinje):
-            weight_ = weights[(pre_id, post_id_)]
-            if weight_ > max_weight:
-                max_weight = weight_
-                max_purkinje_id = post_id_
-                print(f"Granule Cell {pre_id+1} triggered a spike in Purkinje Cell {max_purkinje_id+1} at time ")
-        '''
+            
 # --- Convert Spike Data ---
 spike_times = {f"GC{i+1}": list(granule_spikes[i]) for i in range(num_granule)}
 spike_times.update({f"PC{i+1}": list(purkinje_spikes[i]) for i in range(num_purkinje)})
@@ -603,7 +600,16 @@ for gc_id in range(num_granule):
 axes[0, 0].set_ylabel("Membrane Voltage (mV)")
 axes[1, 0].set_ylabel("Synaptic Weight")
 
+
+# --- Button ---
+fig3 = plt.figure()
+ax_btn = fig3.add_axes([0.7, 0.05, 0.1, 0.075])  # [left, bottom, width, height]
+button = Button(ax_btn, "Stimulate IO")
+button.on_clicked(trigger_spike_IO)
+
+
 # --- Create NetworkX Graph ---
+fig2, ax = plt.subplots(figsize=(8, 6))
 G = nx.DiGraph()
 granule_nodes = [f"GC{i+1}" for i in range(num_granule)]
 purkinje_nodes = [f"PC{i+1}" for i in range(num_purkinje)]
@@ -611,20 +617,17 @@ G.add_nodes_from(granule_nodes, color="blue")
 G.add_nodes_from(purkinje_nodes, color="red")
 G.add_node("IO", color="green")
 
+# --- Define Edges ---
 edges = []
 edge_weights = []
-
 for i in range(num_granule):
     for j in range(num_purkinje):
         weight = weights[(i, j)]  # Get the latest weight value
         edges.append((f"GC{i+1}", f"PC{j+1}"))
         edge_weights.append(weight)
-
-# Add Inferior Olive connections
 for j in range(num_purkinje):
     edges.append(("IO", f"PC{j+1}"))
-    edge_weights.append(0.02)  # Default weight for IO connections
-
+    edge_weights.append(0.01)  # Default weight for IO connections
 G.add_edges_from(edges)
 
 # --- Normalize Edge Widths ---
@@ -634,6 +637,9 @@ if max_w > min_w:  # Avoid division by zero
 else:
     edge_widths = [2 for _ in edge_weights]  # Default width if all weights are the same
 
+# --- Animation ---
+node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
+node_colors["IO"] = "green"
 
 # --- Define Positions ---
 pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
@@ -641,7 +647,6 @@ pos.update({p: (1, i) for i, p in enumerate(purkinje_nodes)})  # Purkinje Cells 
 pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
 
 # --- Animation ---
-fig2, ax = plt.subplots(figsize=(8, 6))
 node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
 node_colors["IO"] = "green"
 
@@ -661,6 +666,8 @@ def update(frame):
 
 ani = animation.FuncAnimation(fig2, update, frames=np.arange(0, 100, 1), interval=100)
 
-plt.tight_layout()
+
+
+#plt.tight_layout()
 plt.show()
 
