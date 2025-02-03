@@ -5,6 +5,8 @@ import matplotlib.animation as animation
 import matplotlib.widgets as button
 import networkx as nx
 
+# using Python 3.8.20
+
 class STDP: # Spike timing dependent plasticity
     def __init__(self, netcon):
         self.netcon = netcon
@@ -46,7 +48,7 @@ class STDP: # Spike timing dependent plasticity
             self.weight = max(0, min(self.weight, max_weight))  # Keep weight within limits
             self.netcon.weight[0] = self.weight
             self.weight_changes.append((h.t, self.weight))
-'''
+#'''
 # Create pre- and post-synaptic neurons
 pre_neuron = h.Section(name='pre_neuron')
 post_neuron = h.Section(name='post_neuron')
@@ -150,6 +152,8 @@ v_pre_np = np.array(v_pre)
 v_post_np = np.array(v_post)
 weights = np.array(stdp.weight_changes)
 
+print(f"size t_np: {len(t_np)}, size weights: {len(weights)}")
+
 # Add initial weight at time 0ms until (first weight_change - delay)
 init_weight_start = np.array([[0, initial_weight]])
 init_weight_end = np.array([[weights[0,0] - delay, initial_weight]])
@@ -157,7 +161,7 @@ weights = np.vstack([init_weight_start, init_weight_end, weights])
 
 print("Pre-spike times:", list(pre_spikes))
 print("Post-spike times:", list(post_spikes))
-#print("Weights:", weights)
+print("Weights:", weights)
 
 # Plot Voltage Traces
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 5))
@@ -180,7 +184,7 @@ else:
 
 #plt.tight_layout()
 plt.show()
-'''
+#'''
 
 '''
 # --- Create Granule Cell Class ---
@@ -509,21 +513,28 @@ while h.t < 20:
     # --- Apply STDP ---
     for pre_id in range(num_granule):
         for post_id in range(num_purkinje):
+            if granule_spikes[pre_id].size() > 0 and purkinje_spikes[post_id].size() > 0:  
+                # Get the last spike times
+                pre_t = granule_spikes[pre_id][-1]
+                post_t = purkinje_spikes[post_id][-1]
+
+                # Ensure we update the weight only once per spike pair
+                delta_t = post_t - pre_t
+                update_weights(pre_id, post_id, delta_t)
+
+                # Track the weight at the current time step
+                weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
+            '''
             for pre_t in granule_spikes[pre_id]:
                 for post_t in purkinje_spikes[post_id]:
                     delta_t = post_t - pre_t
                     update_weights(pre_id, post_id, delta_t)
 
             # Track the weight at the current time step
-            weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
+            while len(weights_over_time[(pre_id, post_id)]) < len(t):
+                weights_over_time[(pre_id, post_id)].append(weights[(pre_id, post_id)])
+            '''
 
-    #print("weights: ",weights)
-
-#for post_id in range(num_purkinje):
-#    for pre_t in io_spikes:
-#        for post_t in purkinje_spikes[post_id]:
-#            delta_t = post_t - pre_t
-#            update_weights("IO", post_id, delta_t)
 
 # --- Convert Spike Data ---
 spike_times = {f"GC{i+1}": list(granule_spikes[i]) for i in range(num_granule)}
@@ -535,32 +546,41 @@ t_np = np.array(t)
 v_granule_np = np.array([vec.to_python() for vec in v_granule.values()])
 v_purkinje_np = np.array([vec.to_python() for vec in v_purkinje.values()])
 v_inferiorOlive_np = np.array(V_inferiorOlive.to_python())
-weights_array = np.array([weights_over_time[(pre, post)] for pre in range(num_granule) for post in range(num_purkinje)])
+#weights_array = np.array([weights_over_time[(pre, post)] for pre in range(num_granule) for post in range(num_purkinje)])
 
 
-# --- Plot Voltage Traces ---
-plt.figure(figsize=(10, 5))
-fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 5))
-for i in range(num_granule):
-    ax1.plot(t_np, v_granule_np[i], label=f"Granule Cell {i+1}")
-for i in range(num_purkinje):
-    ax1.plot(t_np, v_purkinje_np[i], label=f"Purkinje Cell {i+1}")
-ax1.plot(t_np, v_inferiorOlive_np, label="Inferior Olive Cell", color='green')
-ax1.legend()
-ax1.set_ylabel("Membrane Voltage (mV)")
-ax1.set_title("Neuronal Spiking")
+# --- Plot Voltage and Weight Traces ---
+fig1, axes = plt.subplots(2, num_granule, figsize=(5*num_granule, 8), sharex=True)
 
-# --- Plot Weight Trace ---
-#if len(weights_over_time) > 0:
-#    for i, (pre_id, post_id) in enumerate(weights_over_time):
-#        ax2.plot(t_np, weights_over_time[(pre_id, post_id)], label=f"GC{pre_id+1} -> PC{post_id+1}")
-#    ax2.set_xlabel("Time (ms)")
-#    ax2.set_ylabel("Synaptic Weight")
-#    ax2.set_title("Synaptic Weights during STDP")
-#    ax2.legend()
-#else:
-#    print("No weight changes recorded!")
-#plt.show()
+# Share y-axis within each row
+for row in range(2):
+    for col in range(1, num_granule):  # Start from second column
+        axes[row, col].sharey(axes[row, 0])  # Share y-axis with first column
+
+for gc_id in range(num_granule):
+    # --- Spiking Plot for GC and its connected PCs ---
+    ax1 = axes[0, gc_id]
+    ax1.plot(t_np, v_granule_np[gc_id], label=f"GC{gc_id+1}", color="blue")
+    for pc_id in range(num_purkinje):
+        ax1.plot(t_np, v_purkinje_np[pc_id], label=f"PC{pc_id+1}", linestyle="dashed")
+    #ax1.set_ylabel("Membrane Voltage (mV)")
+    ax1.set_title(f"GC{gc_id+1} Spiking Activity")
+    ax1.legend()
+
+    # --- Weight Plot for GC to all connected PCs ---
+    ax2 = axes[1, gc_id]
+    for pc_id in range(num_purkinje):
+        if len(weights_over_time[(gc_id, pc_id)]) > 0:
+            ax2.plot(t_np, weights_over_time[(gc_id, pc_id)], label=f"PC{pc_id+1}")
+    
+    ax2.set_xlabel("Time (ms)")
+    #ax2.set_ylabel("Synaptic Weight")
+    ax2.set_title(f"GC{gc_id+1} Synaptic Weights")
+    ax2.legend()
+
+# Label y-axes only on the first column
+axes[0, 0].set_ylabel("Membrane Voltage (mV)")
+axes[1, 0].set_ylabel("Synaptic Weight")
 
 # --- Create NetworkX Graph ---
 G = nx.DiGraph()
@@ -570,9 +590,29 @@ G.add_nodes_from(granule_nodes, color="blue")
 G.add_nodes_from(purkinje_nodes, color="red")
 G.add_node("IO", color="green")
 
-edges = [(g, p) for g in granule_nodes for p in purkinje_nodes]
-edges += [("IO", p) for p in purkinje_nodes]
+edges = []
+edge_weights = []
+
+for i in range(num_granule):
+    for j in range(num_purkinje):
+        weight = weights[(i, j)]  # Get the latest weight value
+        edges.append((f"GC{i+1}", f"PC{j+1}"))
+        edge_weights.append(weight)
+
+# Add Inferior Olive connections
+for j in range(num_purkinje):
+    edges.append(("IO", f"PC{j+1}"))
+    edge_weights.append(0.02)  # Default weight for IO connections
+
 G.add_edges_from(edges)
+
+# --- Normalize Edge Widths ---
+min_w, max_w = min(edge_weights), max(edge_weights)
+if max_w > min_w:  # Avoid division by zero
+    edge_widths = [(w - min_w) / (max_w - min_w) * 5 + 1 for w in edge_weights]  # Scale to range 1-6
+else:
+    edge_widths = [2 for _ in edge_weights]  # Default width if all weights are the same
+
 
 # --- Define Positions ---
 pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
@@ -580,7 +620,7 @@ pos.update({p: (1, i) for i, p in enumerate(purkinje_nodes)})  # Purkinje Cells 
 pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
 
 # --- Animation ---
-fig, ax = plt.subplots(figsize=(8, 6))
+fig2, ax = plt.subplots(figsize=(8, 6))
 node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
 node_colors["IO"] = "green"
 
@@ -595,9 +635,11 @@ def update(frame):
                for i in range(num_granule) for j in range(num_purkinje)}
 
     nx.draw(G, pos, with_labels=True, node_color=colors, edge_color="gray",
-            node_size=1000, font_size=12, font_weight="bold", arrows=True)
+            node_size=1000, font_size=12, font_weight="bold", arrows=True, width=edge_widths)
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=10, font_weight="bold", label_pos=0.2)
 
-ani = animation.FuncAnimation(fig, update, frames=np.arange(0, 100, 1), interval=100)
+ani = animation.FuncAnimation(fig2, update, frames=np.arange(0, 100, 1), interval=100)
+
+plt.tight_layout()
 plt.show()
 
