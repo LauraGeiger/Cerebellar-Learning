@@ -62,7 +62,7 @@ netcons = []
 stimuli = []
 
 def init_variables():
-    global iter, state, environment, weights, weights_over_time, processed_pairs, blocked_purkinje_id
+    global iter, state, environment, weights, weights_over_time, processed_pairs, blocked_purkinje_id, network_fig, network_ani, buttons
 
     iter = 0
     state = 1  # User can change this state (0, 1, or 2) based on desired behavior
@@ -71,6 +71,9 @@ def init_variables():
     weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
     processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
     blocked_purkinje_id = None
+    network_fig = None
+    network_ani = None
+    buttons = {}
 
 def create_connections():
     # Granule → Purkinje Connections (excitatory)
@@ -134,12 +137,12 @@ def stimulate_granule_cell():
     stimuli.append(stim)
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
-def stimulate_inferior_olive_cell(event, button):
-    global blocked_purkinje_id, last_activated_purkinje, iter
+def stimulate_inferior_olive_cell(event):
+    global blocked_purkinje_id, last_activated_purkinje, iter, buttons
     if last_activated_purkinje  is not None:
         blocked_purkinje_id = last_activated_purkinje
         print(f"    PC{blocked_purkinje_id+1} blocked")
-        button.label.set_text(f"PC{blocked_purkinje_id+1} blocked")
+        buttons["error_button"].label.set_text(f"PC{blocked_purkinje_id+1} blocked")
     
 
     stim = h.IClamp(inferior_olive.soma(0.5))
@@ -150,23 +153,105 @@ def stimulate_inferior_olive_cell(event, button):
     #print(f"Inferior Olive spike triggered at time {h.t + 1} ms")
 
 # Update state variable
-def update_state(event, button):
-    global state
+def update_state(event):
+    global state, buttons
     for i in range(3):
-        if button.value_selected == f"State {i+1}":
+        if buttons["state_button"].value_selected == f"State {i+1}":
             state = i
 
-def toggle_network_graph(event, button):
-    if button.label == "Show network graph":
-        button.label.set_text("Hide network graph")
+def toggle_network_graph(event):
+    global network_fig, buttons
+    if buttons["network_button"].label.get_text() == "Hide network":
+        buttons["network_button"].label.set_text("Show network")
+        plt.close(network_fig)
     else:
-        button.label.set_text("Show network graph")
+        buttons["network_button"].label.set_text("Hide network")
+        show_network_graph()
 
+def update_and_draw_network():
+    global G, edges, node_colors_list, node_pos, network_ax
+    # --- Define Edge Weights---
+    edge_weights = []
+    for i in range(num_granule):
+        for j in range(num_purkinje):
+            weight = weights[(i, j)]  # Get the latest weight value
+            edge_weights.append(weight)
+    for j in range(num_purkinje):
+        edge_weights.append(0.01)  # Default weight for IO connections
+    G.add_edges_from(edges)
 
+    # --- Normalize Edge Widths ---
+    min_w, max_w = min(edge_weights), max(edge_weights)
+    if max_w > min_w:  # Avoid division by zero
+        edge_widths = [(w - min_w) / (max_w - min_w) * 5 + 1 for w in edge_weights]  # Scale to range 1-6
+    else:
+        edge_widths = [2 for _ in edge_weights]  # Default width if all weights are the same
+
+    # --- Define Edge Labels ---
+    edge_labels = {(f"GC{i+1}", f"PC{j+1}"): f"{weights[(granule_cells[i].gid, purkinje_cells[j].gid)]:.3f}"
+        for i in range(num_granule) for j in range(num_purkinje)}
+
+    # --- Drawing ---
+    nx.draw(G, node_pos, with_labels=True, node_color=node_colors_list, edge_color="gray", ax=network_ax,
+                node_size=1000, font_size=12, font_weight="bold", arrows=True, width=edge_widths)
+    nx.draw_networkx_edge_labels(G, node_pos, edge_labels=edge_labels, ax=network_ax, font_size=10, font_weight="bold", label_pos=0.2)
+
+def show_network_graph():
+    global network_fig, network_ani, spike_times, G, edges, node_colors_list, node_pos, network_ax
+
+    network_fig = plt.figure()
+    network_ax = network_fig.add_subplot(111)
+    G = nx.DiGraph()
+
+    # --- Define Nodes ---
+    granule_nodes = [f"GC{i+1}" for i in range(num_granule)]
+    purkinje_nodes = [f"PC{i+1}" for i in range(num_purkinje)]
+    G.add_nodes_from(granule_nodes, color="blue")
+    G.add_nodes_from(purkinje_nodes, color="red")
+    G.add_node("IO", color="green")
+
+    # --- Define Node Positions ---
+    node_pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
+    node_pos.update({p: (1, i) for i, p in enumerate(purkinje_nodes)})  # Purkinje Cells at x = 1
+    node_pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
+
+    # --- Define Node Colors
+    node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
+    node_colors["IO"] = "green"
+    node_colors_list = [node_colors[node] for node in G.nodes]
+
+    # --- Define Edges ---
+    edges = []
+    for i in range(num_granule):
+        for j in range(num_purkinje):
+            edges.append((f"GC{i+1}", f"PC{j+1}"))
+    for j in range(num_purkinje):
+        edges.append(("IO", f"PC{j+1}"))
+    G.add_edges_from(edges)
+
+    update_and_draw_network()
+    
+    '''
+    # --- Animation ---
+    def update(frame):
+        ax.clear()
+        current_time = frame
+        active_nodes = [node for node in G.nodes if any(abs(sp - current_time) < 2 for sp in spike_times[node])]
+        colors = ["yellow" if node in active_nodes else node_colors[node] for node in G.nodes]
+
+        # Add edge labels for weights
+        edge_labels = {(f"GC{i+1}", f"PC{j+1}"): f"{weights[(granule_cells[i].gid, purkinje_cells[j].gid)]:.3f}"
+                for i in range(num_granule) for j in range(num_purkinje)}
+
+        nx.draw(G, pos, with_labels=True, node_color=colors, edge_color="gray", ax=ax,
+                node_size=1000, font_size=12, font_weight="bold", arrows=True, width=edge_widths)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax, font_size=10, font_weight="bold", label_pos=0.2)
+
+    network_ani = animation.FuncAnimation(network_fig, update, frames=np.arange(0, 100, 1), interval=100)
+    '''  
 
 def reset(event):
     None
-
 
 # --- STDP Update Function ---
 def update_weights(pre_gid, post_gid, delta_t, t):
@@ -180,18 +265,21 @@ def update_weights(pre_gid, post_gid, delta_t, t):
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
 
-
-def update_stimulation_and_plots(event, button):
-    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, state_button, blocked_purkinje_id, error_button
-    button.label.set_text(f"Run iteration {iter}")
+def update_stimulation_and_plots(event):
+    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, blocked_purkinje_id, buttons
+    buttons["run_button"].label.set_text(f"Run iteration {iter}")
     stimulate_granule_cell()
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
-    # --- Relase blocked PC ---
-    #blocked_purkinje_id = None
-    error_button.label.set_text("Error")
-    [fig1, axes1, state_button] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
     
+    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
+    
+    if buttons["network_button"].label.get_text("Hide network"):
+        update_and_draw_network() # Update network if open
 
+    # Release blocked PC
+    blocked_purkinje_id = None
+    buttons["error_button"].label.set_text("Error")
+    
 def recording():
     # --- Record Spiking Activity and Voltages---
     t = h.Vector().record(h._ref_t)
@@ -219,7 +307,7 @@ def recording():
     return [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive]
 
 def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes):
-    global iter, blocked_purkinje_id
+    global iter, blocked_purkinje_id, spike_times
     # --- Run Simulation ---
     #h.finitialize(-65)
 
@@ -264,9 +352,8 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes):
 
     return [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np]
 
-
 def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1 = None, axes1 = None):
-    global error_button
+    global buttons
 
     if fig1 is None or axes1 is None:
         fig1, axes1 = plt.subplots(2, num_granule, figsize=(5 * num_granule, 8), sharex=True)
@@ -306,100 +393,52 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1 = None,
 
 
     # --- Button ---
-    state_ax = fig1.add_axes([0.9, 0.7, 0.07, 0.1]) # [left, bottom, width, height]
-    state_button = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
-    state_button.on_clicked(lambda event: update_state(event, state_button))
-    run_ax = fig1.add_axes([0.9, 0.6, 0.1, 0.05]) # [left, bottom, width, height]
-    run_button = Button(run_ax, f"Run iteration {iter}")
-    run_button.on_clicked(lambda event: update_stimulation_and_plots(event, run_button))
-    error_ax = fig1.add_axes([0.9, 0.5, 0.1, 0.05]) # [left, bottom, width, height]
-    error_button = Button(error_ax, "Error")
-    error_button.on_clicked(lambda event: stimulate_inferior_olive_cell(event, error_button))
-    network_ax = fig1.add_axes([0.9, 0.4, 0.1, 0.05]) # [left, bottom, width, height]
-    network_button = Button(network_ax, "Show network")
-    network_button.on_clicked(lambda event: toggle_network_graph(event, network_button))
-    reset_ax = fig1.add_axes([0.9, 0.3, 0.1, 0.05]) # [left, bottom, width, height]
-    reset_button = Button(reset_ax, "Reset")
-    reset_button.on_clicked(reset)
 
-    
+    # State Button
+    if "state_button" not in buttons:
+        state_ax = fig1.add_axes([0.9, 0.7, 0.07, 0.1])
+        buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
+        buttons["state_button"].on_clicked(update_state)
 
-    '''
-    # --- Create NetworkX Graph ---
-    fig2, ax = plt.subplots(figsize=(8, 6))
-    G = nx.DiGraph()
-    granule_nodes = [f"GC{i+1}" for i in range(num_granule)]
-    purkinje_nodes = [f"PC{i+1}" for i in range(num_purkinje)]
-    G.add_nodes_from(granule_nodes, color="blue")
-    G.add_nodes_from(purkinje_nodes, color="red")
-    G.add_node("IO", color="green")
+    # Run Button
+    if "run_button" not in buttons:
+        run_ax = fig1.add_axes([0.9, 0.6, 0.1, 0.05])
+        buttons["run_button"] = Button(run_ax, f"Run iteration {iter}")
+        buttons["run_button"].on_clicked(update_stimulation_and_plots)
 
-    # --- Define Edges ---
-    edges = []
-    edge_weights = []
-    for i in range(num_granule):
-        for j in range(num_purkinje):
-            weight = weights[(i, j)]  # Get the latest weight value
-            edges.append((f"GC{i+1}", f"PC{j+1}"))
-            edge_weights.append(weight)
-    for j in range(num_purkinje):
-        edges.append(("IO", f"PC{j+1}"))
-        edge_weights.append(0.01)  # Default weight for IO connections
-    G.add_edges_from(edges)
+    # Error Button
+    if "error_button" not in buttons:
+        error_ax = fig1.add_axes([0.9, 0.5, 0.1, 0.05])
+        buttons["error_button"] = Button(error_ax, "Error")
+        buttons["error_button"].on_clicked(stimulate_inferior_olive_cell)
 
-    # --- Normalize Edge Widths ---
-    min_w, max_w = min(edge_weights), max(edge_weights)
-    if max_w > min_w:  # Avoid division by zero
-        edge_widths = [(w - min_w) / (max_w - min_w) * 5 + 1 for w in edge_weights]  # Scale to range 1-6
-    else:
-        edge_widths = [2 for _ in edge_weights]  # Default width if all weights are the same
+    # Network Button
+    if "network_button" not in buttons:
+        network_ax = fig1.add_axes([0.9, 0.4, 0.1, 0.05])
+        buttons["network_button"] = Button(network_ax, "Show network")
+        buttons["network_button"].on_clicked(toggle_network_graph)
 
-    # --- Animation ---
-    node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
-    node_colors["IO"] = "green"
-
-    # --- Define Positions ---
-    pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
-    pos.update({p: (1, i) for i, p in enumerate(purkinje_nodes)})  # Purkinje Cells at x = 1
-    pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
-
-    # --- Animation ---
-    node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
-    node_colors["IO"] = "green"
-
-    def update(frame):
-        ax.clear()
-        current_time = frame
-        active_nodes = [node for node in G.nodes if any(abs(sp - current_time) < 2 for sp in spike_times[node])]
-        colors = ["yellow" if node in active_nodes else node_colors[node] for node in G.nodes]
-
-        # Add edge labels for weights
-        edge_labels = {(f"GC{i+1}", f"PC{j+1}"): f"{weights[(granule_cells[i].gid, purkinje_cells[j].gid)]:.3f}"
-                for i in range(num_granule) for j in range(num_purkinje)}
-
-        nx.draw(G, pos, with_labels=True, node_color=colors, edge_color="gray",
-                node_size=1000, font_size=12, font_weight="bold", arrows=True, width=edge_widths)
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=10, font_weight="bold", label_pos=0.2)
-
-    ani = animation.FuncAnimation(fig2, update, frames=np.arange(0, 100, 1), interval=100)
-    '''
+    # Reset Button
+    if "reset_button" not in buttons:
+        reset_ax = fig1.add_axes([0.9, 0.3, 0.1, 0.05])
+        buttons["reset_button"] = Button(reset_ax, "Reset")
+        buttons["reset_button"].on_clicked(reset)
 
     #fig1.canvas.draw_idle()
     plt.draw()
     plt.pause(1)
 
-    return [fig1, axes1, state_button]
+    return [fig1, axes1]
+
 
 def main():
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1, state_button
+    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1
     init_variables()
     create_connections()
     stimulate_granule_cell()
     [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive] = recording()
     h.finitialize(-65)
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
-    #[fig1, axes1, state_button] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
-    
     
     
 
@@ -408,7 +447,7 @@ main()
 try:
     while True:
         # Update the plot
-        fig1, axes1, state_button = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
+        fig1, axes1 = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
         time.sleep(2) # Delay between iterations
 
 except KeyboardInterrupt:
