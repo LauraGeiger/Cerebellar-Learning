@@ -267,13 +267,13 @@ def update_weights(pre_gid, post_gid, delta_t, t):
 
 def update_stimulation_and_plots(event):
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, blocked_purkinje_id, buttons
-    buttons["run_button"].label.set_text(f"Run iteration {iter}")
+    
     stimulate_granule_cell()
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
-    
+    buttons["run_button"].label.set_text(f"Run iteration {iter}")
     [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1, axes1)
     
-    if buttons["network_button"].label.get_text("Hide network"):
+    if buttons["network_button"].label.get_text() == "Hide network":
         update_and_draw_network() # Update network if open
 
     # Release blocked PC
