@@ -80,7 +80,7 @@ def create_connections():
     for granule in granule_cells:
         for purkinje in purkinje_cells:
             syn = h.ExpSyn(purkinje.soma(0.5))
-            syn.e = 0
+            syn.e = 0 # Reversal potential
             #syn.tau = 2
             nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
             nc.weight[0] = initial_weight + np.random.uniform(0,0.001)
