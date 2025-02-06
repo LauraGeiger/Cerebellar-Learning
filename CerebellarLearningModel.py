@@ -30,18 +30,20 @@ class PurkinjeCell:
         self.soma.insert('hh')
 
 class InferiorOliveCell:
-    def __init__(self):
-        self.soma = h.Section(name='inferior_olive')
+    def __init__(self, gid):
+        self.gid = gid
+        self.soma = h.Section(name=f'inferior_olive_{gid}')
         self.soma.L = self.soma.diam = 20
         self.soma.insert('hh')
 
 # --- Create Network ---
 num_granule = 3
 num_purkinje = 5
+num_inferior_olive = 1
 
 granule_cells = [GranuleCell(i) for i in range(num_granule)]
 purkinje_cells = [PurkinjeCell(i) for i in range(num_purkinje)]
-inferior_olive = InferiorOliveCell()
+inferior_olive_cells = [InferiorOliveCell(i) for i in range(num_inferior_olive)]
 
 # --- STDP Parameters ---
 tau_plus = 20  
@@ -50,16 +52,24 @@ A_plus = 0.005
 A_minus = 0.005
 dt_LTP = 10  # Time window for LTP (ms)
 dt_LTD = -10  # Time window for LTD (ms)
-initial_weight = 0.01
+pf_initial_weight = 0.01 # Parallel fiber initial weight
+cf_initial_weight = 0.1 # Climbing fiber initial weight
 max_weight = 0.1
 min_weight = 0.001
 
 
 
-# --- Create Synapses and Connections ---
-synapses = []
-netcons = []
-stimuli = []
+# --- Create Synapses, Connections and Stimulations ---
+pf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber synapses
+cf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber synapses
+#pf_ncs = [] # parallel fiber netcons
+pf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber netcons
+#cf_ncs = [] # climbing fiber netcons
+cf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber netcons
+pf_stims = [None for _ in range(num_granule)] # parallel fiber stimulations
+cf_stims = [None for _ in range(num_inferior_olive)] # climbing fiber stimulations
+simple_spike = None
+complex_spike = None
 
 def init_variables():
     global iter, state, environment, weights, weights_over_time, processed_pairs, blocked_purkinje_id, network_fig, network_ani, buttons
@@ -75,29 +85,60 @@ def init_variables():
     network_ani = None
     buttons = {}
 
-def create_connections():
-    # Granule → Purkinje Connections (excitatory)
-    for granule in granule_cells:
-        for purkinje in purkinje_cells:
-            syn = h.ExpSyn(purkinje.soma(0.5))
-            syn.e = 0 # Reversal potential
-            #syn.tau = 2
-            nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
-            nc.weight[0] = initial_weight + np.random.uniform(0,0.001)
-            nc.delay = 3
-            synapses.append(syn)
-            netcons.append(nc)
-            weights[(granule.gid, purkinje.gid)] = nc.weight[0] 
+def create_connections_and_spikes():
+    # Simple Spike
+    #simple_spike = h.NetStim()
+    #simple_spike.number = 1000  # Number of spikes
+    #simple_spike.start = 10    # Start time (ms)
+    #simple_spike.interval = 10  # 100 Hz firing 
 
-    # Inferior Olive → Purkinje Connections (inhibitory)
-    for purkinje in purkinje_cells:
-        syn = h.ExpSyn(purkinje.soma(0.5))
-        syn.e = -70  # Inhibitory reversal potential
-        syn.tau = 3
-        nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
-        nc.delay = 3
-        synapses.append(syn)
-        netcons.append(nc)
+    # Parallel Fibers: Granule → Purkinje Connections (excitatory)
+    for g_id, granule in enumerate(granule_cells):
+        #pf_stim = h.NetStim()
+        #pf_stim.number = 1000  # Number of spikes
+        #pf_stim.start = 10    # Start time (ms)
+        #pf_stim.interval = 10  # 100 Hz firing 
+        #pf_stims.append(pf_stim)
+
+        for p_id, purkinje in enumerate(purkinje_cells):
+            pf_syns[g_id][p_id] = h.Exp2Syn(purkinje.soma(0.5))
+            pf_syns[g_id][p_id].tau1 = 1 # Synaptic rise time
+            pf_syns[g_id][p_id].tau2 = 5 # Synaptic decay time
+            pf_syns[g_id][p_id].e = 0 # Excitatory
+
+            #pf_nc = h.NetCon(granule.soma(0.5)._ref_v, pf_syn, sec=granule.soma)
+            #pf_ncs[g_id][p_id] = h.NetCon(simple_spike, pf_syns[g_id][p_id], sec=granule.soma)
+            #pf_ncs[g_id][p_id].weight[0] = pf_initial_weight
+            #pf_ncs[g_id][p_id].delay = 3
+            #pf_ncs.append(pf_nc)
+            pf_ncs[g_id][p_id] = h.NetCon(granule.soma(0.5)._ref_v, pf_syns[g_id][p_id], sec=granule.soma)
+            pf_ncs[g_id][p_id].weight[0] = pf_initial_weight
+            pf_ncs[g_id][p_id].delay = 3
+            weights[(granule.gid, purkinje.gid)] = pf_initial_weight + np.random.uniform(0,0.001)
+    
+    # Complex Spike
+    #complex_spike = h.NetStim()
+    #complex_spike.number = 1  # Single spike
+    #complex_spike.start = 50  # Delayed onset
+
+    # Climbing Fibers: Inferior Olive → Purkinje Connections 
+    for i_id, inferior_olive in enumerate(inferior_olive_cells):
+        for p_id, purkinje in enumerate(purkinje_cells):
+            cf_syns[i_id][p_id] = h.Exp2Syn(purkinje.soma(0.5))
+            cf_syns[i_id][p_id].tau1 = 10  # Synaptic rise time
+            cf_syns[i_id][p_id].tau2 = 50  # Synaptic decay time
+            cf_syns[i_id][p_id].e = 0  # Excitatory 
+        
+            #cf_nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, cf_syn, sec=inferior_olive.soma)
+            #cf_ncs[i_id][p_id] = h.NetCon(complex_spike, cf_syns[i_id][p_id], sec=inferior_olive.soma)
+            #cf_ncs[i_id][p_id].weight[0] = cf_initial_weight
+            #cf_ncs[i_id][p_id].delay = 3
+            #cf_ncs.append(cf_nc)
+            cf_ncs[i_id][p_id] = h.NetCon(inferior_olive.soma(0.5)._ref_v, cf_syns[i_id][p_id], sec=inferior_olive.soma)
+            cf_ncs[i_id][p_id].weight[0] = cf_initial_weight
+            cf_ncs[i_id][p_id].delay = 3
+    
+    
 
 
 def stimulate_highest_weight_PC(granule_gid, spike_time):
@@ -115,26 +156,30 @@ def stimulate_highest_weight_PC(granule_gid, spike_time):
             max_weight = weight
             best_purkinje = purkinje
 
-    if best_purkinje:
-        # Inject a small current to trigger a spike
-        stim = h.IClamp(best_purkinje.soma(0.5))
-        stim.delay = spike_time + 1  # Small delay after spike
-        stim.dur = 1
-        stim.amp = 2
-        stimuli.append(stim)
+    g_id = state
+    i_id = 0
+    for p_id, purkinje in enumerate(purkinje_cells):
+        if purkinje == best_purkinje:
+            # Activate connections to purkinje cell with highest weight
+            pf_ncs[g_id][p_id].weight[0] = pf_initial_weight
+            cf_ncs[i_id][p_id].weight[0] = cf_initial_weight
+        else:
+            # Deactivate connections to all other purkinje cells
+            pf_ncs[g_id][p_id].weight[0] = 0
+            cf_ncs[i_id][p_id].weight[0] = 0
+        
         last_activated_purkinje = best_purkinje.gid  # Update last activated PC
         #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {best_purkinje.gid+1} (weight {max_weight})")
 
 def stimulate_granule_cell():
     # --- Stimulate Granule Cells Based on State ---
-    if state == 0:   stim = h.IClamp(granule_cells[0].soma(0.5))
-    elif state == 1: stim = h.IClamp(granule_cells[1].soma(0.5))
-    elif state == 2: stim = h.IClamp(granule_cells[2].soma(0.5))
-    
-    stim.delay = h.t + 10
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
+    g_id = state
+    granule = granule_cells[g_id]
+    pf_stims[g_id] = h.IClamp(granule.soma(0.5))
+    pf_stims[g_id].delay = h.t + 10
+    pf_stims[g_id].dur = 1
+    pf_stims[g_id].amp = 0.5
+       
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell(event):
@@ -144,13 +189,21 @@ def stimulate_inferior_olive_cell(event):
         print(f"    PC{blocked_purkinje_id+1} blocked")
         buttons["error_button"].label.set_text(f"PC{blocked_purkinje_id+1} blocked")
     
+    i_id = 0
+    inferior_olive = inferior_olive_cells[i_id]
 
-    stim = h.IClamp(inferior_olive.soma(0.5))
-    stim.delay = h.t + 1
-    stim.dur = 1
-    stim.amp = 2
-    stimuli.append(stim)
-    #print(f"Inferior Olive spike triggered at time {h.t + 1} ms")
+    cf_stims[i_id] = h.IClamp(inferior_olive.soma(0.5))
+    cf_stims[i_id].delay = h.t
+    cf_stims[i_id].dur = 1
+    cf_stims[i_id].amp = 2
+    print(f"Inferior Olive spike triggered at time {h.t + 1} ms")
+    # Calcium-Activated K+ Current for Pause
+    ahp = h.IClamp(inferior_olive.soma(0.5))  # Artificial hyperpolarizing current
+    ahp.delay = h.t + 1  # Shortly after complex spike
+    ahp.dur = 200   # Lasts for 200 ms
+    ahp.amp = 2  # Hyperpolarizing current (in nA)
+
+    
 
 # Update state variable
 def update_state(event):
@@ -285,10 +338,10 @@ def recording():
     t = h.Vector().record(h._ref_t)
     granule_spikes = {i: h.Vector() for i in range(num_granule)}
     purkinje_spikes = {i: h.Vector() for i in range(num_purkinje)}
-    inferiorOlive_spikes = h.Vector()
+    inferiorOlive_spikes = {i: h.Vector() for i in range(num_inferior_olive)}
     v_granule = {i: h.Vector().record(granule_cells[i].soma(0.5)._ref_v) for i in range(num_granule)}
     v_purkinje = {i: h.Vector().record(purkinje_cells[i].soma(0.5)._ref_v) for i in range(num_purkinje)}
-    v_inferiorOlive = h.Vector().record(inferior_olive.soma(0.5)._ref_v)
+    v_inferiorOlive = {i: h.Vector().record(inferior_olive_cells[i].soma(0.5)._ref_v) for i in range(num_inferior_olive)}
 
     for i, granule in enumerate(granule_cells):
         nc = h.NetCon(granule.soma(0.5)._ref_v, None, sec=granule.soma)
@@ -300,16 +353,17 @@ def recording():
         nc.threshold = -20
         nc.record(purkinje_spikes[i])
 
-    nc_io = h.NetCon(inferior_olive.soma(0.5)._ref_v, None, sec=inferior_olive.soma)
-    nc_io.threshold = -20
-    nc_io.record(inferiorOlive_spikes)
+    for i, inferior_olive in enumerate(inferior_olive_cells):
+        nc_io = h.NetCon(inferior_olive.soma(0.5)._ref_v, None, sec=inferior_olive.soma)
+        nc_io.threshold = -20
+        nc_io.record(inferiorOlive_spikes[i])
 
     return [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive]
 
 def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes):
     global iter, blocked_purkinje_id, spike_times
     # --- Run Simulation ---
-    #h.finitialize(-65)
+    h.finitialize(-65)
 
     # Continuously run the simulation and update weights during the simulation
     while h.t < 30 * (iter + 1): # run 30 steps per iteration
@@ -348,7 +402,7 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes):
     t_np = np.array(t)
     v_granule_np = np.array([vec.to_python() for vec in v_granule.values()])
     v_purkinje_np = np.array([vec.to_python() for vec in v_purkinje.values()])
-    v_inferiorOlive_np = np.array(v_inferiorOlive.to_python())
+    v_inferiorOlive_np = np.array([vec.to_python() for vec in v_inferiorOlive.values()])
 
     return [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np]
 
@@ -434,7 +488,7 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, fig1 = None,
 def main():
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1
     init_variables()
-    create_connections()
+    create_connections_and_spikes()
     stimulate_granule_cell()
     [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive] = recording()
     h.finitialize(-65)
