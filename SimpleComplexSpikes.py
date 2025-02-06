@@ -10,9 +10,9 @@ soma.insert('hh')  # Hodgkin-Huxley channels
 
 # Parallel Fiber (PF) Stimulation - Simple Spikes
 pf_stim = h.NetStim()
-pf_stim.number = 100  # Number of spikes
-pf_stim.start = 10    # Start time (ms)
-pf_stim.interval = 10  # Frequency 100 (Hz)
+#pf_stim.number = 100  # Number of spikes
+#pf_stim.start = 10    # Start time (ms)
+#pf_stim.interval = 10  # Frequency 100 (Hz)
 
 pf_syn = h.Exp2Syn(soma(0.5))
 pf_syn.tau1 = 1  # Synaptic rise time
