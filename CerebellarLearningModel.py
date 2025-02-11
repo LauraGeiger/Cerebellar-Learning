@@ -122,9 +122,9 @@ def stimulate_highest_weight_PC(granule_gid):
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
         try:
-            print(f"PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
+            #print(f"PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
             if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 50 mV
-                print(f"Skip PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
+                #print(f"Skip PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
                 continue # Skip the blocked Purkinje cell
         except NameError: 
             None
@@ -135,7 +135,7 @@ def stimulate_highest_weight_PC(granule_gid):
     
 
     try:
-        print(f"Best purkinje: PC{best_purkinje.gid+1}")
+        #print(f"Best purkinje: PC{best_purkinje.gid+1}")
         None
     except NameError: 
         print("v_purkinje_np not defined")
@@ -167,7 +167,6 @@ def stimulate_granule_cell():
     stim.dur = 1
     stim.amp = 0.5
     stimuli.append(stim)
-    print("Granule Spike simulated")
 
 def update_granule_stimulation_and_plots(event=None):
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, buttons, iter
@@ -256,10 +255,10 @@ def toggle_mode(event=None):
             if simulation_completed == True:
                 simulation_completed = False
                 if last_activated_purkinje.gid != environment[state]:
-                    print(f"{h.t} PC{last_activated_purkinje.gid+1} not desired, triggering error")
+                    print(f"PC{last_activated_purkinje.gid+1} not desired, triggering error")
                     update_inferior_olive_stimulation_and_plots() # automatically trigger error
-                    time.sleep(5) # Delay between iterations
-                time.sleep(5) # Delay between iterations
+                    #time.sleep(1) # Delay between iterations
+                #time.sleep(1) # Delay between iterations
             if mode == 0:
                 break
 
@@ -406,9 +405,8 @@ def recording():
 def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error = False):
     global iter, spike_times, processed_pairs, frequency, simulation_completed
 
-    print("Run simulation")
     if error:
-        time_span = 1/2 * 1/frequency*1000
+        time_span = 1/4 * 1/frequency*1000
         stop_time = h.t + time_span
     else:
         stop_time = 1/frequency*1000 * (iter + 1) # run 20 ms per iteration
@@ -417,26 +415,34 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
     while h.t < stop_time: 
         h.continuerun(h.t + 1)  # Incrementally run the simulation
         
-        # --- Trigger Purkinje Cell Spike ---
-        for g_id in range(num_granule):
-            for pre_t in granule_spikes[g_id]:
-                if pre_t > h.t -1:
-                    stimulate_highest_weight_PC(g_id)
-
-        # --- Apply STDP ---
-        for g_id in range(num_granule):
-            for p_id in range(num_purkinje):
+        if error == False:
+            # --- Trigger Purkinje Cell Spike ---
+            for g_id in range(num_granule):
                 for pre_t in granule_spikes[g_id]:
-                    for post_t in purkinje_spikes[p_id]:
-                        if (pre_t, post_t) not in processed_pairs[(g_id, p_id)]:
-                            delta_t = post_t - pre_t
-                            #print(f"update weights for GC{g_id+1} <-> PC{p_id+1} pre_t {pre_t} post_t {post_t}")
-                            update_weights(g_id, p_id, delta_t, h.t)
-                            processed_pairs[(g_id, p_id)].add((pre_t, post_t))
+                    #if pre_t > h.t -1:
+                    if pre_t > stop_time - 1/frequency*1000: # timespan between last GC stimulation
+                        stimulate_highest_weight_PC(g_id)
 
-                # Track the weight at the current time step
-                while len(weights_over_time[(g_id, p_id)]) < len(t):
-                    weights_over_time[(g_id, p_id)].append(weights[(g_id, p_id)])
+            # --- Apply STDP ---
+            for g_id in range(num_granule):
+                for p_id in range(num_purkinje):
+                    for pre_t in granule_spikes[g_id]:
+                        for post_t in purkinje_spikes[p_id]:
+                            if (pre_t, post_t) not in processed_pairs[(g_id, p_id)]:
+                                delta_t = post_t - pre_t
+                                #print(f"update weights for GC{g_id+1} <-> PC{p_id+1} pre_t {pre_t} post_t {post_t}")
+                                update_weights(g_id, p_id, delta_t, h.t)
+                                processed_pairs[(g_id, p_id)].add((pre_t, post_t))
+
+                    # Track the weight at the current time step
+                    while len(weights_over_time[(g_id, p_id)]) < len(t):
+                        weights_over_time[(g_id, p_id)].append(weights[(g_id, p_id)])
+        else:
+            for g_id in range(num_granule):
+                for p_id in range(num_purkinje):
+                    # Track the weight at the current time step
+                    while len(weights_over_time[(g_id, p_id)]) < len(t):
+                        weights_over_time[(g_id, p_id)].append(weights[(g_id, p_id)])
 
 
     # --- Convert Spike Data ---
@@ -455,7 +461,6 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
 
 def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1 = None, axes1 = None):
     global buttons
-    print("Update Spike and weight Plot")
 
     if fig1 is None or axes1 is None:
         fig1, axes1 = plt.subplots(2, num_granule, figsize=(5 * num_granule, 8), sharex=True)
@@ -539,7 +544,6 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
         buttons["reset_button"] = Button(reset_ax, "Reset")
         buttons["reset_button"].on_clicked(reset)
 
-    #fig1.canvas.draw_idle()
     plt.draw()
     plt.pause(1)
 
@@ -550,18 +554,11 @@ def main():
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1, iter
     init_variables()
     create_connections()
-    stimulate_granule_cell()
+    #stimulate_granule_cell()
     [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive] = recording()
     h.finitialize(-65)
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
     iter += 1
-    
-
-    ## Trigger error automatically
-    #if mode == 1: # automatic mode
-    #    if last_activated_purkinje.gid != environment[state]:
-    #        print(f"{h.t} PC{last_activated_purkinje.gid+1} not desired, triggering error")
-    #        update_inferior_olive_stimulation_and_plots() # automatically trigger error
     
     
     
