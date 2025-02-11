@@ -53,11 +53,10 @@ A_plus = 0.005
 A_minus = 0.005
 dt_LTP = 10  # Time window for LTP (ms)
 dt_LTD = -10  # Time window for LTD (ms)
-pf_initial_weight = 0.01
-cf_initial_weight = 0.5
+pf_initial_weight = 0.01 # Parallel fiber initial weight
+cf_initial_weight = 0.5 # Climbing fiber initial weight
 max_weight = 0.1
 min_weight = 0.001
-
 
 
 # --- Create Synapses and Connections ---
@@ -67,6 +66,7 @@ cf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive
 cf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber netcons
 
 stimuli = []
+
 
 def init_variables():
     global iter, state, mode, mode_dict, environment, frequency, weights, weights_over_time, processed_pairs, network_fig, network_ani, buttons
@@ -83,6 +83,7 @@ def init_variables():
     network_fig = None
     network_ani = None
     buttons = {}
+
 
 def create_connections():
     # Granule → Purkinje Connections (excitatory)
@@ -133,7 +134,6 @@ def stimulate_highest_weight_PC(granule_gid):
             max_weight = weight
             best_purkinje = purkinje
     
-
     try:
         #print(f"Best purkinje: PC{best_purkinje.gid+1}")
         None
@@ -180,6 +180,28 @@ def update_granule_stimulation_and_plots(event=None):
     if buttons["network_button"].label.get_text() == "Hide network":
         update_and_draw_network() # Update network if open
     
+    #ahp = h.IClamp(purkinje_cell.soma(0.5))  # Artificial hyperpolarizing current
+    #ahp.delay = h.t + 1  # Shortly after complex spike
+    #ahp.dur = 200   # Lasts for 200 ms
+    #ahp.amp = 2  # Hyperpolarizing current (in nA)
+
+
+def update_IO_stimulation_and_plots(event):
+    #global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, blocked_purkinje_id, buttons
+    #global blocked_purkinje_id
+    #if last_activated_purkinje  is not None:
+    #    blocked_purkinje_id = last_activated_purkinje
+    #    print(f"    PC{blocked_purkinje_id+1} blocked")
+    #    buttons["error_button"].label.set_text(f"PC{blocked_purkinje_id+1} blocked")
+
+    #stimulate_inferior_olive_cell()
+    #[t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive)
+    #[fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1)
+    
+    #if buttons["network_button"].label.get_text() == "Hide network":
+    #    update_and_draw_network() # Update network if open
+    None
+
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell():
@@ -317,8 +339,8 @@ def show_network_graph():
     granule_nodes = [f"GC{i+1}" for i in range(num_granule)]
     purkinje_nodes = [f"PC{i+1}" for i in range(num_purkinje)]
     G.add_nodes_from(granule_nodes, color="blue")
-    G.add_nodes_from(purkinje_nodes, color="red")
-    G.add_node("IO", color="green")
+    G.add_nodes_from(purkinje_nodes, color="green")
+    G.add_node("IO", color="red")
 
     # --- Define Node Positions ---
     node_pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
@@ -326,8 +348,8 @@ def show_network_graph():
     node_pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
 
     # --- Define Node Colors
-    node_colors = {node: "blue" if node.startswith("G") else "red" for node in G.nodes}
-    node_colors["IO"] = "green"
+    node_colors = {node: "blue" if node.startswith("G") else "green" for node in G.nodes}
+    node_colors["IO"] = "red"
     node_colors_list = [node_colors[node] for node in G.nodes]
 
     # --- Define Edges ---
@@ -374,6 +396,7 @@ def update_weights(pre_gid, post_gid, delta_t, t):
     else: dw = 0
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
+
     
 def recording():
     # --- Record Spiking Activity and Voltages---
@@ -411,6 +434,7 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
     else:
         stop_time = 1/frequency*1000 * (iter + 1) # run 20 ms per iteration
 
+
     # Continuously run the simulation and update weights during the simulation
     while h.t < stop_time: 
         h.continuerun(h.t + 1)  # Incrementally run the simulation
@@ -446,8 +470,8 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
 
 
     # --- Convert Spike Data ---
-    spike_times = {f"GC{i+1}": list(granule_spikes[i]) for i in range(num_granule)}
-    spike_times.update({f"PC{i+1}": list(purkinje_spikes[i]) for i in range(num_purkinje)})
+    spike_times =      {f"GC{i+1}": list(granule_spikes[i])       for i in range(num_granule)}
+    spike_times.update({f"PC{i+1}": list(purkinje_spikes[i])      for i in range(num_purkinje)})
     spike_times.update({f"IO{i+1}": list(inferiorOlive_spikes[i]) for i in range(num_inferior_olive)})
 
     # --- Convert Voltage Data and Weights ---
@@ -461,7 +485,7 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
 
 def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1 = None, axes1 = None):
     global buttons
-
+    
     if fig1 is None or axes1 is None:
         fig1, axes1 = plt.subplots(2, num_granule, figsize=(5 * num_granule, 8), sharex=True)
         # Share y-axis within each row
@@ -474,6 +498,7 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
         for row in range(2):
             for col in range(num_granule):
                 axes1[row,col].cla()
+
     io_id = 0
     for granule in granule_cells:
         
@@ -490,6 +515,7 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
             text_blocked = ""
             if v_purkinje_np[purkinje.gid][-1] > -55:
                 text_blocked = " blocked"
+
 
             # --- Spiking Plot for GC and its connected PCs ---
             ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}", linestyle="dashed")
