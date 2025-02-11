@@ -143,18 +143,18 @@ def stimulate_highest_weight_PC(granule_gid):
         print("All purkinje cells blocked")
 
     
-    g_id = state
     i_id = 0
     if best_purkinje != None:
-        for p_id, purkinje in enumerate(purkinje_cells):
+        for purkinje in purkinje_cells:
             if purkinje == best_purkinje:
                 # Activate connections to purkinje cell with highest weight
-                pf_ncs[g_id][p_id].weight[0] = pf_initial_weight
-                cf_ncs[i_id][p_id].weight[0] = cf_initial_weight
+                pf_ncs[granule_gid][purkinje.gid].weight[0] = pf_initial_weight
+                #pf_ncs[granule_gid][purkinje.gid].weight[0] = weights[(granule_gid, purkinje.gid)]
+                cf_ncs[i_id][purkinje.gid].weight[0] = cf_initial_weight
             else:
                 # Deactivate connections to all other purkinje cells
-                pf_ncs[g_id][p_id].weight[0] = 0
-                cf_ncs[i_id][p_id].weight[0] = 0
+                pf_ncs[granule_gid][purkinje.gid].weight[0] = 0
+                cf_ncs[i_id][purkinje.gid].weight[0] = 0
             
             last_activated_purkinje = best_purkinje  # Update last activated PC
             #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {best_purkinje.gid+1} (weight {max_weight})")
@@ -396,6 +396,8 @@ def update_weights(pre_gid, post_gid, delta_t, t):
     else: dw = 0
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
+    # Update netcon weight
+    #pf_ncs[pre_gid][post_gid].weight[0] = np.clip(new_weight, min_weight, max_weight)
 
     
 def recording():
