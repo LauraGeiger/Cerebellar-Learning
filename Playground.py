@@ -202,7 +202,6 @@ plt.title("Purkinje Cell Response to Granule & Inferior Olive Inputs")
 plt.legend()
 plt.show()
 '''
-
 from neuron import h, gui
 import numpy as np
 import matplotlib.pyplot as plt
@@ -210,16 +209,16 @@ import matplotlib.pyplot as plt
 # === Create Cells ===
 granule = h.Section(name="granule")  # Granule cell
 granule.L = granule.diam = 10
-granule.insert("pas")  
+granule.insert("hh")  # Active conductances
 
 purkinje_cells = [h.Section(name=f"pc_{i}") for i in range(5)]  # 5 Purkinje cells
 for pc in purkinje_cells:
     pc.L = pc.diam = 30
-    pc.insert("pas")
+    pc.insert("hh")  # Hodgkin-Huxley for spiking
 
 basket = h.Section(name="basket")  # Basket cell
 basket.L = basket.diam = 10
-basket.insert("pas")
+basket.insert("hh")  # Active conductances
 
 # === Excitatory Synapses (Granule → Purkinje) ===
 exc_syns = [h.ExpSyn(pc(0.5)) for pc in purkinje_cells]
@@ -233,28 +232,28 @@ for syn in inh_syns:
     syn.tau = 5
     syn.e = -70  # Inhibitory reversal potential (GABA)
 
-# === Create Stimulators ===
-# Granule cell spike generator (50 Hz firing)
-granule_netstim = h.NetStim()
-granule_netstim.interval = 20  # 50 Hz firing rate
-granule_netstim.number = 20  # Total spikes
-granule_netstim.start = 10  # Start time
-granule_netstim.noise = 0
+# === Direct Current Injection for Spiking ===
+# Granule Cell (50 Hz spiking)
+granule_stim = h.IClamp(granule(0.5))
+granule_stim.delay = 10  # Start stimulation at 10 ms
+granule_stim.dur = 1   # Duration of 200 ms
+granule_stim.amp = 0.5   # Adjust to trigger 50 Hz spiking
 
-# Basket cell spike generator
-basket_netstim = h.NetStim()
-basket_netstim.interval = 40  # Regular inhibitory firing
-basket_netstim.number = 10
-basket_netstim.start = 30
-basket_netstim.noise = 0
+# Basket Cell (Inhibition)
+basket_stim = h.IClamp(basket(0.5))
+basket_stim.delay = 10   # Start inhibition later
+basket_stim.dur = 1    # Continuous inhibition
+basket_stim.amp = 0.5    # Adjust for regular spiking
 
-# === Connect NetCons ===
-granule_netcons = [h.NetCon(granule_netstim, syn) for syn in exc_syns]
+# === Connect Synapses ===
+granule_netcons = [h.NetCon(granule(0.5)._ref_v, syn, sec=granule) for syn in exc_syns]
 for nc in granule_netcons:
-    nc.weight[0] = 0.001  # Small excitatory weight
+    nc.threshold = 10  # Spike detection threshold
+    nc.weight[0] = 0.002  # Excitatory weight
 
-basket_netcons = [h.NetCon(basket_netstim, syn) for syn in inh_syns]
+basket_netcons = [h.NetCon(basket(0.5)._ref_v, syn, sec=basket) for syn in inh_syns]
 for nc in basket_netcons:
+    nc.threshold = 10  # Detect basket cell spikes
     nc.weight[0] = 0.05  # Strong inhibition
 
 # === Recording Variables ===
@@ -282,10 +281,12 @@ def record_basket_spikes():
     basket_spike_times.append(h.t)
 
 # Spike detectors
-granule_spike_detector = h.NetCon(granule_netstim, None)
+granule_spike_detector = h.NetCon(granule(0.5)._ref_v, None, sec=granule)
+granule_spike_detector.threshold = -40
 granule_spike_detector.record(record_granule_spikes)
 
-basket_spike_detector = h.NetCon(basket_netstim, None)
+basket_spike_detector = h.NetCon(basket(0.5)._ref_v, None, sec=basket)
+basket_spike_detector.threshold = -40
 basket_spike_detector.record(record_basket_spikes)
 
 # === Run Simulation ===
@@ -328,4 +329,3 @@ axs[3].set_title("Basket Cell Raster Plot")
 
 plt.tight_layout()
 plt.show()
-

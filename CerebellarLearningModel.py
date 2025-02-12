@@ -37,6 +37,13 @@ class InferiorOliveCell:
         self.soma.L = self.soma.diam = 20
         self.soma.insert('hh')
 
+class BasketCell:
+    def __init__(self, gid):
+        self.gid = gid
+        self.soma = h.Section(name=f'basket_{gid}')
+        self.soma.L = self.soma.diam = 20
+        self.soma.insert('hh')
+
 # --- Create Network ---
 num_granule = 3
 num_purkinje = 5
@@ -46,6 +53,7 @@ num_basket = 1
 granule_cells = [GranuleCell(i) for i in range(num_granule)]
 purkinje_cells = [PurkinjeCell(i) for i in range(num_purkinje)]
 inferior_olive_cells = [InferiorOliveCell(i) for i in range(num_inferior_olive)]
+basket_cells = [BasketCell(i) for i in range(num_basket)]
 
 # --- STDP Parameters ---
 tau_plus = 20  
@@ -56,6 +64,7 @@ dt_LTP = 10  # Time window for LTP (ms)
 dt_LTD = -10  # Time window for LTD (ms)
 pf_initial_weight = 0.01 # Parallel fiber initial weight
 cf_initial_weight = 0.5 # Climbing fiber initial weight
+basket_initial_weight = 0.1 # Basket to Purkinje weight
 max_weight = 0.1
 min_weight = 0.001
 
@@ -113,23 +122,31 @@ def create_connections():
             syn.e = 0  # Excitatory
             syn.tau1 = 5 # Synaptic rise time
             syn.tau2 = 25 # Synaptic decay time
-            cf_syns[0][purkinje.gid] = syn
+            cf_syns[inferior_olive.gid][purkinje.gid] = syn
             nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
             nc.weight[0] = cf_initial_weight
             nc.delay = 1
             cf_ncs[inferior_olive.gid][purkinje.gid] = nc
 
-    for b_id in range(num_basket):
+    # Basket → Purkinje Connections (inhibitory)
+    for basket in basket_cells:
         for purkinje in purkinje_cells:
-            inh_syn = h.ExpSyn(purkinje.soma(0.5))
-            inh_syn.e = -70 # inhibitory reversal potential
-            inh_syns[b_id][purkinje.gid] = inh_syn
+            syn = h.Exp2Syn(purkinje.soma(0.5))
+            syn.e = -70  # Inhibitory
+            syn.tau1 = 1 # Synaptic rise time
+            syn.tau2 = 5 # Synaptic decay time
+            inh_syns[basket.gid][purkinje.gid] = syn
+            nc = h.NetCon(basket.soma(0.5)._ref_v, syn, sec=basket.soma)
+            nc.weight[0] = basket_initial_weight
+            nc.delay = 1
+            inh_ncs[basket.gid][purkinje.gid] = nc
 
 def activate_highest_weight_PC(granule_gid):
-    global last_activated_purkinje, inh_syns, inh_ncs, inh_stim, stimuli
+    global active_purkinje, inh_syns, inh_ncs, stimuli
 
+    
     max_weight = -np.inf
-    best_purkinje = None
+    active_purkinje = None
 
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
@@ -145,10 +162,10 @@ def activate_highest_weight_PC(granule_gid):
         print(f"PC{purkinje.gid+1} with weight {weight} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
         if weight > max_weight:
             max_weight = weight
-            best_purkinje = purkinje
+            active_purkinje = purkinje
     
     try:
-        print(f"Best purkinje: PC{best_purkinje.gid+1} with weight {max_weight}")
+        print(f"Active purkinje: PC{active_purkinje.gid+1} with weight {max_weight}")
         None
     except NameError: 
         print("v_purkinje_np not defined")
@@ -157,32 +174,29 @@ def activate_highest_weight_PC(granule_gid):
 
     
     i_id = 0
-    if best_purkinje != None:
+    if active_purkinje != None:
         for purkinje in purkinje_cells:
-            if purkinje == best_purkinje:
+            if purkinje == active_purkinje:
                 # Activate connection to purkinje cell with highest weight
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = pf_initial_weight
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = weights[(granule_gid, purkinje.gid)]
                 #pf_ncs[granule_gid][purkinje.gid].threshold = 10 # normal firing threshold
+                for basket in basket_cells:
+                    inh_ncs[basket.gid][purkinje.gid].weight[0] = 0
                 cf_ncs[i_id][purkinje.gid].weight[0] = cf_initial_weight
             else:
-                b_id = 0 # basket cell ID
+                for basket in basket_cells:
+                    inh_ncs[basket.gid][purkinje.gid].weight[0] = basket_initial_weight
                 
-                inh_stim = h.NetStim()
-                inh_stim.start = 1/frequency*1000 * (iter + 1/2)
-                inh_stim.number = 1
-                stimuli.append(inh_stim)
-                inh_nc = h.NetCon(inh_stim, inh_syns[b_id][purkinje.gid])
-                inh_nc.weight[0] = 0.1
-                inh_ncs[b_id][purkinje.gid] = inh_nc
                 # Deactivate connections to all other purkinje cells
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = 0
                 #pf_ncs[granule_gid][purkinje.gid].threshold = 50 # unreachable threshold
                 cf_ncs[i_id][purkinje.gid].weight[0] = 0
             
-            last_activated_purkinje = best_purkinje  # Update last activated PC
-            #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {best_purkinje.gid+1} (weight {max_weight})")
+            #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {active_purkinje.gid+1} (weight {max_weight})")
             print(f"{h.t} PC{purkinje.gid+1} with weight {pf_ncs[granule_gid][purkinje.gid].weight[0]} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
+
+            
 
 def stimulate_granule_cell():
     # --- Stimulate Granule Cells Based on State ---
@@ -194,24 +208,27 @@ def stimulate_granule_cell():
     stim.amp = 0.5
     stimuli.append(stim)
 
+    # Send inhibitory signals to all purkinje cells expect active_purkinje
+    for basket in basket_cells:
+        basket_stim = h.IClamp(basket.soma(0.5))
+        basket_stim.delay = stim.delay # same as granule 
+        basket_stim.dur = stim.dur # same as granule 
+        basket_stim.amp = stim.amp  # same as granule 
+        stimuli.append(basket_stim)
+
 def update_granule_stimulation_and_plots(event=None):
-    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, buttons, iter
+    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, fig1, axes1, buttons, iter
     g_id = state
     activate_highest_weight_PC(g_id)
 
     stimulate_granule_cell()
-    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
+    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
     buttons["run_button"].label.set_text(f"Run iteration {iter}")
-    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1)
+    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
 
     if buttons["network_button"].label.get_text() == "Hide network":
         update_and_draw_network() # Update network if open
-    
-    #ahp = h.IClamp(purkinje_cell.soma(0.5))  # Artificial hyperpolarizing current
-    #ahp.delay = h.t + 1  # Shortly after complex spike
-    #ahp.dur = 200   # Lasts for 200 ms
-    #ahp.amp = 2  # Hyperpolarizing current (in nA)
 
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
@@ -239,13 +256,21 @@ def stimulate_inferior_olive_cell():
     i_vec = h.Vector(current_values)
     i_vec.play(stim._ref_amp, t_vec, True)
 
+    # Send inhibitory signals to all purkinje cells expect active_purkinje
+    #for basket in basket_cells:
+    #    basket_stim = h.IClamp(basket.soma(0.5))
+    #    basket_stim.delay = stim.delay -1 # same as inferior olive
+    #    basket_stim.dur = stim.dur # same as inferior olive
+    #    basket_stim.amp = stim.amp # same as inferior olive
+    #    stimuli.append(basket_stim)
+
 
 def update_inferior_olive_stimulation_and_plots(event=None):
-    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, fig1, axes1, buttons
+    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, fig1, axes1, buttons
     
     stimulate_inferior_olive_cell()
-    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error=True)
-    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1)
+    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, error=True)
+    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
     
     if buttons["network_button"].label.get_text() == "Hide network":
         update_and_draw_network() # Update network if open
@@ -259,7 +284,7 @@ def update_state(event):
             state = i
 
 def toggle_mode(event=None):
-    global state, mode, mode_dict, simulation_completed
+    global state, mode, mode_dict, active_purkinje
 
     mode = next(i for i, value in mode_dict.items() if value == buttons["automatic_button"].value_selected)
 
@@ -275,10 +300,9 @@ def toggle_mode(event=None):
     if mode == 1: # automatic mode
         for i in range(10):
             update_granule_stimulation_and_plots()
-            if simulation_completed == True:
-                simulation_completed = False
-                if last_activated_purkinje.gid != environment[state]:
-                    print(f"PC{last_activated_purkinje.gid+1} not desired, triggering error")
+            if active_purkinje != None:
+                if active_purkinje.gid != environment[state]:
+                    print(f"PC{active_purkinje.gid+1} not desired, triggering error")
                     update_inferior_olive_stimulation_and_plots() # automatically trigger error
             if mode == 0:
                 break
@@ -396,39 +420,39 @@ def update_weights(pre_gid, post_gid, delta_t, t):
 
     
 def recording():
-    global i_inh
     # --- Record Spiking Activity and Voltages---
     t = h.Vector().record(h._ref_t)
     granule_spikes = {i: h.Vector() for i in range(num_granule)}
     purkinje_spikes = {i: h.Vector() for i in range(num_purkinje)}
     inferiorOlive_spikes = {i: h.Vector() for i in range(num_inferior_olive)}
+    basket_spikes = {i: h.Vector() for i in range(num_basket)}
     v_granule = {i: h.Vector().record(granule_cells[i].soma(0.5)._ref_v) for i in range(num_granule)}
     v_purkinje = {i: h.Vector().record(purkinje_cells[i].soma(0.5)._ref_v) for i in range(num_purkinje)}
     v_inferiorOlive = {i: h.Vector().record(inferior_olive_cells[i].soma(0.5)._ref_v) for i in range(num_inferior_olive)}
+    v_basket = {i: h.Vector().record(basket_cells[i].soma(0.5)._ref_v) for i in range(num_basket)}
 
-    for i, granule in enumerate(granule_cells):
+    for granule in granule_cells:
         nc = h.NetCon(granule.soma(0.5)._ref_v, None, sec=granule.soma)
-        nc.threshold = 10
-        nc.record(granule_spikes[i])
+        nc.record(granule_spikes[granule.gid])
 
-    for i, purkinje in enumerate(purkinje_cells):
+    for purkinje in purkinje_cells:
         nc = h.NetCon(purkinje.soma(0.5)._ref_v, None, sec=purkinje.soma)
-        nc.threshold = 10
-        nc.record(purkinje_spikes[i])
+        nc.record(purkinje_spikes[purkinje.gid])
 
-    for i, inferior_olive in enumerate(inferior_olive_cells):
+    for inferior_olive in inferior_olive_cells:
         nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, None, sec=inferior_olive.soma)
-        nc.threshold = 10
-        nc.record(inferiorOlive_spikes[i])
+        nc.record(inferiorOlive_spikes[inferior_olive.gid])
+
+    for basket in basket_cells:
+        nc = h.NetCon(basket.soma(0.5)._ref_v, None, sec=basket.soma)
+        nc.record(basket_spikes[basket.gid])
     
-    i_inh = [h.Vector() for i in range(num_purkinje)]
-    for i in range(num_purkinje):
-        i_inh[i].record(inh_syns[0][i]._ref_i)
+  
 
-    return [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive]
+    return [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket]
 
-def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error = False):
-    global iter, spike_times, processed_GC_spikes, processed_pairs, frequency, simulation_completed
+def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, error = False):
+    global iter, spike_times, processed_GC_spikes, processed_pairs, frequency
 
     if error:
         time_span = 1/4 * 1/frequency*1000
@@ -478,17 +502,18 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, error 
     spike_times =      {f"GC{i+1}": list(granule_spikes[i])       for i in range(num_granule)}
     spike_times.update({f"PC{i+1}": list(purkinje_spikes[i])      for i in range(num_purkinje)})
     spike_times.update({f"IO{i+1}": list(inferiorOlive_spikes[i]) for i in range(num_inferior_olive)})
+    spike_times.update({f"BC{i+1}": list(basket_spikes[i])        for i in range(num_basket)})
 
     # --- Convert Voltage Data and Weights ---
     t_np = np.array(t)
-    v_granule_np = np.array([vec.to_python() for vec in v_granule.values()])
-    v_purkinje_np = np.array([vec.to_python() for vec in v_purkinje.values()])
+    v_granule_np =       np.array([vec.to_python() for vec in v_granule.values()])
+    v_purkinje_np =      np.array([vec.to_python() for vec in v_purkinje.values()])
     v_inferiorOlive_np = np.array([vec.to_python() for vec in v_inferiorOlive.values()])
+    v_basket_np =        np.array([vec.to_python() for vec in v_basket.values()])
 
-    simulation_completed = True
-    return [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np]
+    return [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np]
 
-def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1 = None, axes1 = None):
+def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1 = None, axes1 = None):
     global buttons
     
     if fig1 is None or axes1 is None:
@@ -505,14 +530,14 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
                 axes1[row,col].cla()
 
     io_id = 0
+    b_id = 0
     for granule in granule_cells:
         
         ax1 = axes1[0, granule.gid]
         ax1.set_title(f"GC{granule.gid+1} Spiking Activity")
         ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="blue")
         ax1.plot(t_np, v_inferiorOlive_np[io_id], label=f"IO", color="black")
-        for i in range(num_purkinje):
-            ax1.plot(t_np, i_inh[i], label=f"I_inh PC{i+1}")
+        ax1.plot(t_np, v_basket_np[b_id], label=f"B", color="pink")
 
         ax2 = axes1[1, granule.gid]
         ax2.set_title(f"GC{granule.gid+1} Synaptic Weights")
@@ -584,13 +609,13 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
 
 
 def main():
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1, iter
+    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1, iter
     init_variables()
     create_connections()
     #stimulate_granule_cell()
-    [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, v_granule, v_purkinje, v_inferiorOlive] = recording()
+    [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket] = recording()
     h.finitialize(-65)
-    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes)
+    [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
     
     
@@ -601,7 +626,7 @@ main()
 try:
     while True:
         # Update the plot
-        fig1, axes1 = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, fig1, axes1)
+        fig1, axes1 = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
         time.sleep(2) # Delay between iterations
 
 except KeyboardInterrupt:
