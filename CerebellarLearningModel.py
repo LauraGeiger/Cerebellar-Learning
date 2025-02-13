@@ -2,12 +2,17 @@ from neuron import h, gui
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.widgets import Button
+from matplotlib.widgets import RadioButtons
+from matplotlib.patches import FancyArrow, FancyArrowPatch
+#from scipy.interpolate import make_curve
 import networkx as nx
 import time
 
-from matplotlib.widgets import Button
-from matplotlib.widgets import RadioButtons
-from matplotlib.widgets import TextBox
+
+
+
+
 
 # using Python 3.8.20
 
@@ -151,21 +156,20 @@ def activate_highest_weight_PC(granule_gid):
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
         try:
-            print(f"PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
+            #print(f"PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
             if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 50 mV
-                print(f"Skip PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
+                #print(f"Skip PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
                 continue # Skip the blocked Purkinje cell
         except NameError: 
             None
         #weight = weights[(granule_gid, purkinje.gid)]
         weight = pf_ncs[granule_gid][purkinje.gid].weight[0]
-        print(f"PC{purkinje.gid+1} with weight {weight} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
         if weight > max_weight:
             max_weight = weight
             active_purkinje = purkinje
     
     try:
-        print(f"Active purkinje: PC{active_purkinje.gid+1} with weight {max_weight}")
+        #print(f"Active purkinje: PC{active_purkinje.gid+1} with weight {max_weight}")
         None
     except NameError: 
         print("v_purkinje_np not defined")
@@ -180,7 +184,6 @@ def activate_highest_weight_PC(granule_gid):
                 # Activate connection to purkinje cell with highest weight
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = pf_initial_weight
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = weights[(granule_gid, purkinje.gid)]
-                #pf_ncs[granule_gid][purkinje.gid].threshold = 10 # normal firing threshold
                 for basket in basket_cells:
                     inh_ncs[basket.gid][purkinje.gid].weight[0] = 0
                 cf_ncs[i_id][purkinje.gid].weight[0] = cf_initial_weight
@@ -190,11 +193,10 @@ def activate_highest_weight_PC(granule_gid):
                 
                 # Deactivate connections to all other purkinje cells
                 #pf_ncs[granule_gid][purkinje.gid].weight[0] = 0
-                #pf_ncs[granule_gid][purkinje.gid].threshold = 50 # unreachable threshold
                 cf_ncs[i_id][purkinje.gid].weight[0] = 0
             
             #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {active_purkinje.gid+1} (weight {max_weight})")
-            print(f"{h.t} PC{purkinje.gid+1} with weight {pf_ncs[granule_gid][purkinje.gid].weight[0]} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
+            #print(f"{h.t} PC{purkinje.gid+1} with weight {pf_ncs[granule_gid][purkinje.gid].weight[0]} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
 
             
 
@@ -347,7 +349,89 @@ def update_and_draw_network():
                 node_size=1000, font_size=12, font_weight="bold", arrows=True, width=edge_widths)
     nx.draw_networkx_edge_labels(G, node_pos, edge_labels=edge_labels, ax=network_ax, font_size=10, font_weight="bold", label_pos=0.2)
 
+
+
+def draw_purkinje(ax, x, y, width=0.2, color='orange'):
+    """Draws a Purkinje neuron with dendrites and a separate soma."""
+    # Soma (neuron body)
+    ax.scatter(x, y[0], s=200, color=color)
+    
+    # Dendritic tree
+    ax.plot([x, x], [y[0], y[-1]], color=color, lw=4)  # Main trunk
+    for i in range(1,num_granule+1):  # Branching
+        ax.plot([x, x - width], [y[i], y[i] + width], color=color, lw=2)
+        ax.plot([x, x + width], [y[i], y[i] + width], color=color, lw=2)
+
+def draw_parallel_fiber(ax, x, y, length=4, height=1.5):
+    """Draws a parallel fiber extending across Purkinje cells."""
+    ax.plot([x - length / 4, x + length], [y , y], color='green', lw=2, linestyle='dashed')
+
+def draw_granule_to_parallel(ax, x, y_start, y_end):
+    """Draws a granule cell axon that ascends vertically and forms a parallel fiber."""
+    ax.plot([x, x], [y_start, y_end], color='blue', lw=2)  # Vertical axon
+    draw_parallel_fiber(ax, x, y_end)  # Horizontal fiber
+
+def draw_climbing_fiber(ax, x, y_start, y_end):
+    """Draws a climbing fiber from the Inferior Olive wrapping around a Purkinje cell."""
+    t = np.linspace(0, 1, 100)
+    x_vals = x + 0.2 * np.sin(6 * np.pi * t)  # Wavy pattern for wrapping
+    y_vals = y_start + (y_end - y_start) * t
+    ax.plot(x_vals, y_vals, color='red', lw=2, label="Climbing Fiber")
+
+def draw_basket_cell(ax, x_start, x_end, y):
+    """Draws a basket cell connecting to all Purkinje cells at their soma."""
+    ax.scatter(x_start, y, s=150, color='purple', edgecolors='black', label="Basket Cell")
+    ax.plot([x_start , x_end], [y, y], color='purple', lw=2)
+
 def show_network_graph():
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+
+    purkinje_x = np.linspace(0, 2, num_purkinje)
+    granule_x = np.linspace(-2, -1, num_granule)
+    olive_x = np.linspace(0, 2, num_inferior_olive)
+    basket_x = -0.5
+    
+    purkinje_y = np.linspace(0, 1.5, num_granule+1)
+    granule_y = -2  # Bottom row
+    basket_y = purkinje_y[0]
+    olive_y = -3  # Inferior Olive position
+
+    # Draw Inferior Olive cell
+    ax.scatter(olive_x, olive_y, s=200, color='red', edgecolors='black', label="Inferior Olive")
+
+    # Draw Purkinje cells
+    for x in purkinje_x:
+        draw_purkinje(ax, x, purkinje_y, width=0.2)
+        draw_climbing_fiber(ax, x, olive_y, purkinje_y[-1])  # Climbing fibers
+
+    # Draw Granule cells, vertical axons, and parallel fibers
+    for i, x in enumerate(granule_x):
+        ax.scatter(x, granule_y, color='blue', s=100, label="Granule Cell") 
+        draw_granule_to_parallel(ax, x, granule_y, purkinje_y[i+1])
+
+    # Draw Basket cell connecting to Purkinje cell somas
+    draw_basket_cell(ax, basket_x, purkinje_x[-1], basket_y)
+
+    # Labels
+    ax.text(purkinje_x[-1] + 0.2, purkinje_y[0], "Purkinje Cells", fontsize=12, color="orange")
+    ax.text(granule_x[0], granule_y - 0.2, "Granule Cells", fontsize=12, color="blue")
+    ax.text(granule_x[0], purkinje_y[-1] + 0.2, "Parallel Fibers", fontsize=12, color="green")
+    ax.text(olive_x, olive_y - 0.2, "Inferior Olive", fontsize=12, color="red")
+    ax.text(basket_x, basket_y + 0.2, "Basket Cell", fontsize=12, color="purple")
+
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3.5, 3)
+    ax.axis('off')
+    plt.title("Realistic Cerebellar Network")
+    #plt.legend(loc="upper right", fontsize=10)
+    plt.show()
+
+show_network_graph()
+
+
+
+def old_show_network_graph():
     global network_fig, network_ani, spike_times, G, edges, node_colors_list, node_pos, network_ax
 
     network_fig = plt.figure()
@@ -400,6 +484,7 @@ def show_network_graph():
 
     network_ani = animation.FuncAnimation(network_fig, update, frames=np.arange(0, 100, 1), interval=100)
     '''  
+
 
 def reset(event):
     None
@@ -619,9 +704,11 @@ def main():
     iter += 1
     
     
-    
+
 
 main()
+
+
 
 try:
     while True:
