@@ -4,8 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.widgets import Button
 from matplotlib.widgets import RadioButtons
-from matplotlib.patches import FancyArrow, FancyArrowPatch
-#from scipy.interpolate import make_curve
+from matplotlib.gridspec import GridSpec
 import networkx as nx
 import time
 
@@ -18,7 +17,9 @@ import time
 
 # --- Variable Initialization for plotting
 plt.ion()  # Turn on interactive mode
-fig1, axes1 = None, None
+fig = plt.figure(layout="constrained")
+gs, ax_network, ax_plots, ax_buttons = None, None, None, None
+#axes = None
 
 # --- Granule, Purkinje, and Inferior Olive Cell Classes ---
 class GranuleCell:
@@ -86,7 +87,7 @@ stimuli = []
 
 
 def init_variables():
-    global iter, state, mode, mode_dict, environment, frequency, weights, weights_over_time, processed_GC_spikes, processed_pairs, network_fig, network_ani, buttons
+    global iter, state, mode, mode_dict, environment, frequency, weights, weights_over_time, processed_GC_spikes, processed_pairs, buttons
 
     iter = 0
     state = 1  # User can change this state (0, 1, or 2) based on desired behavior
@@ -98,8 +99,6 @@ def init_variables():
     weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
     processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
-    network_fig = None
-    network_ani = None
     buttons = {}
 
 
@@ -219,7 +218,7 @@ def stimulate_granule_cell():
         stimuli.append(basket_stim)
 
 def update_granule_stimulation_and_plots(event=None):
-    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, fig1, axes1, buttons, iter
+    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, iter
     g_id = state
     activate_highest_weight_PC(g_id)
 
@@ -227,10 +226,11 @@ def update_granule_stimulation_and_plots(event=None):
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
     buttons["run_button"].label.set_text(f"Run iteration {iter}")
-    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
+    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
 
     if buttons["network_button"].label.get_text() == "Hide network":
-        update_and_draw_network() # Update network if open
+        None
+        #update_and_draw_network() # Update network if open
 
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
@@ -268,14 +268,15 @@ def stimulate_inferior_olive_cell():
 
 
 def update_inferior_olive_stimulation_and_plots(event=None):
-    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, fig1, axes1, buttons
+    global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons
     
     stimulate_inferior_olive_cell()
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, error=True)
-    [fig1, axes1] = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
+    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
     
     if buttons["network_button"].label.get_text() == "Hide network":
-        update_and_draw_network() # Update network if open
+        None
+        #update_and_draw_network() # Update network if open
 
 
 # Update state variable
@@ -313,13 +314,16 @@ def toggle_mode(event=None):
 
 
 def toggle_network_graph(event):
-    global network_fig, buttons
+    global buttons
     if buttons["network_button"].label.get_text() == "Hide network":
         buttons["network_button"].label.set_text("Show network")
-        plt.close(network_fig)
+        ax_network.cla() # clear network plot
+        ax_network.axis("off")
+        gs.set_height_ratios([0.1, 1, 1])
     else:
         buttons["network_button"].label.set_text("Hide network")
         show_network_graph()
+        gs.set_height_ratios([1.5, 1, 1])
 
 def update_and_draw_network():
     global G, edges, node_colors_list, node_pos, network_ax
@@ -351,83 +355,102 @@ def update_and_draw_network():
 
 
 
-def draw_purkinje(ax, x, y, width=0.2, color='orange'):
+def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange'):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
     # Soma (neuron body)
-    ax.scatter(x, y[0], s=200, color=color)
+    ax.scatter(x, y, s=200, color=color)
     
     # Dendritic tree
-    ax.plot([x, x], [y[0], y[-1]], color=color, lw=4)  # Main trunk
-    for i in range(1,num_granule+1):  # Branching
-        ax.plot([x, x - width], [y[i], y[i] + width], color=color, lw=2)
-        ax.plot([x, x + width], [y[i], y[i] + width], color=color, lw=2)
+    #ax.plot([x, x], [y, y + height], color=color, lw=4)  # Main trunk
+    for i in range(num_granule):  # Branching
+        ax.plot([x, x + (i-1) * width], [y, y + (i+1) * width], color=color, lw=2)
 
-def draw_parallel_fiber(ax, x, y, length=4, height=1.5):
+    # Axons
+    ax.plot([x, x], [y, y - height], color=color, lw=4)
+
+def draw_parallel_fiber(ax, x, y, length=4.5):
     """Draws a parallel fiber extending across Purkinje cells."""
-    ax.plot([x - length / 4, x + length], [y , y], color='green', lw=2, linestyle='dashed')
+    ax.plot([x - length / 8, x + length], [y , y], color='C9', lw=2)
 
 def draw_granule_to_parallel(ax, x, y_start, y_end):
     """Draws a granule cell axon that ascends vertically and forms a parallel fiber."""
-    ax.plot([x, x], [y_start, y_end], color='blue', lw=2)  # Vertical axon
+    ax.plot([x, x], [y_start, y_end], color='C9', lw=2)  # Vertical axon
     draw_parallel_fiber(ax, x, y_end)  # Horizontal fiber
 
-def draw_climbing_fiber(ax, x, y_start, y_end):
+def draw_climbing_fiber(ax, x, y_start, y_end, width=0.5):
     """Draws a climbing fiber from the Inferior Olive wrapping around a Purkinje cell."""
-    t = np.linspace(0, 1, 100)
-    x_vals = x + 0.2 * np.sin(6 * np.pi * t)  # Wavy pattern for wrapping
-    y_vals = y_start + (y_end - y_start) * t
-    ax.plot(x_vals, y_vals, color='red', lw=2, label="Climbing Fiber")
 
-def draw_basket_cell(ax, x_start, x_end, y):
-    """Draws a basket cell connecting to all Purkinje cells at their soma."""
-    ax.scatter(x_start, y, s=150, color='purple', edgecolors='black', label="Basket Cell")
-    ax.plot([x_start , x_end], [y, y], color='purple', lw=2)
+    ax.plot([x + 0.1, x + 0.1], [y_start, y_end - 0.1], color='black', lw=2, label="Climbing Fiber")
+    ax.plot([x, x + 0.1], [y_end, y_end - 0.1], color='black', lw=2, label="Climbing Fiber")
+    t = np.linspace(0, 1, 100)
+
+    for i in range(num_granule):  # Branching
+        branch_x_start = x
+        branch_x_end = x + (i-1) * width
+        branch_y_start = y_end
+        branch_y_end = y_end + (i+1) * width
+        x_vals = branch_x_start + (branch_x_end - branch_x_start) * t + 0.05 * np.sin(10 * np.pi * t)  # Wavy pattern for wrapping
+        y_vals = branch_y_start + (branch_y_end - branch_y_start) * t + 0.05 * np.sin(10 * np.pi * t)
+        ax.plot(x_vals, y_vals, color='black', lw=1, label="Climbing Fiber")
+
 
 def show_network_graph():
-    fig, ax = plt.subplots(figsize=(8, 6))
+    global fig, ax_network
+    #ax = fig.add_subplot(gs[0, :]) # reserve first row for network graph
 
+    height = 3
+    width = 0.5
 
-    purkinje_x = np.linspace(0, 2, num_purkinje)
-    granule_x = np.linspace(-2, -1, num_granule)
-    olive_x = np.linspace(0, 2, num_inferior_olive)
-    basket_x = -0.5
+    purkinje_x = np.linspace(-1, 2, num_purkinje)
+    granule_x = np.linspace(-2.5, -2, num_granule)
+    olive_x = purkinje_x[-1] + 0.4
+    basket_x = purkinje_x[-1] + 0.4
     
-    purkinje_y = np.linspace(0, 1.5, num_granule+1)
+    purkinje_y = 0
     granule_y = -2  # Bottom row
-    basket_y = purkinje_y[0]
-    olive_y = -3  # Inferior Olive position
+    basket_y = purkinje_y
+    olive_y = -2  # Inferior Olive position
+
+    purkinje_colors = ["C0", "C1", "C2", "C3", "C4"]
 
     # Draw Inferior Olive cell
-    ax.scatter(olive_x, olive_y, s=200, color='red', edgecolors='black', label="Inferior Olive")
+    ax_network.plot([purkinje_x[0]+0.1, olive_x], [olive_y, olive_y], color='black', lw=2, label="Climbing Fiber")
+    ax_network.scatter(olive_x, olive_y, s=200, color='black', label="Inferior Olive")
+
+    # Draw Basket cell connecting to Purkinje cell somas
+    ax_network.plot([purkinje_x[0], basket_x], [basket_y, basket_y], color='C8', lw=2)
+    ax_network.scatter(basket_x, basket_y, s=150, color='C8', label="Basket Cell")
+    
 
     # Draw Purkinje cells
-    for x in purkinje_x:
-        draw_purkinje(ax, x, purkinje_y, width=0.2)
-        draw_climbing_fiber(ax, x, olive_y, purkinje_y[-1])  # Climbing fibers
+    for i, x in enumerate(purkinje_x):
+        draw_purkinje(ax_network, x, purkinje_y, width=width, height=height, color=purkinje_colors[i])
+        draw_climbing_fiber(ax_network, x, olive_y, purkinje_y, width=width)  # Climbing fibers
 
     # Draw Granule cells, vertical axons, and parallel fibers
     for i, x in enumerate(granule_x):
-        ax.scatter(x, granule_y, color='blue', s=100, label="Granule Cell") 
-        draw_granule_to_parallel(ax, x, granule_y, purkinje_y[i+1])
+        ax_network.scatter(x, granule_y, color='C9', s=100, label="Granule Cell") 
+        draw_granule_to_parallel(ax_network, x, granule_y, purkinje_y + (i+1) * width)
 
-    # Draw Basket cell connecting to Purkinje cell somas
-    draw_basket_cell(ax, basket_x, purkinje_x[-1], basket_y)
+    
 
     # Labels
-    ax.text(purkinje_x[-1] + 0.2, purkinje_y[0], "Purkinje Cells", fontsize=12, color="orange")
-    ax.text(granule_x[0], granule_y - 0.2, "Granule Cells", fontsize=12, color="blue")
-    ax.text(granule_x[0], purkinje_y[-1] + 0.2, "Parallel Fibers", fontsize=12, color="green")
-    ax.text(olive_x, olive_y - 0.2, "Inferior Olive", fontsize=12, color="red")
-    ax.text(basket_x, basket_y + 0.2, "Basket Cell", fontsize=12, color="purple")
+    ax_network.text(purkinje_x[-1] + 0.3, purkinje_y - 0.5, "Purkinje Cells", fontsize=12, color="grey")
+    for i, x in enumerate(purkinje_x):
+        ax_network.text(purkinje_x[i] - 0.4, purkinje_y - 0.5, f"PC{i+1}", fontsize=12, color=purkinje_colors[i])
+    ax_network.text(granule_x[0], granule_y - 0.7, "Granule Cells", fontsize=12, color="C9")
+    for i, x in enumerate(granule_x):
+        ax_network.text(granule_x[i] - 0.2, granule_y - 0.4, f"GC{i+1}", fontsize=12, color="C9")
+    ax_network.text(granule_x[1], purkinje_y + (num_granule) * width + 0.2, "Parallel Fibers (PF)", fontsize=12, color="C9")
+    ax_network.text(olive_x + 0.2, olive_y, "Inferior Olive (IO)", fontsize=12, color="black")
+    ax_network.text(purkinje_x[-1] + 0.3, olive_y + abs(purkinje_y - olive_y) / 2, "Climbing Fibers (CF)", fontsize=12, color="black")
+    ax_network.text(basket_x + 0.2, basket_y, "Basket Cell (BC)", fontsize=12, color="C8")
 
-    ax.set_xlim(-3, 3)
-    ax.set_ylim(-3.5, 3)
-    ax.axis('off')
-    plt.title("Realistic Cerebellar Network")
-    #plt.legend(loc="upper right", fontsize=10)
-    plt.show()
+    #ax_network.set_xlim(-3, 3)
+    #ax_network.set_ylim(-3.5, 3)
 
-show_network_graph()
+
+
 
 
 
@@ -441,9 +464,9 @@ def old_show_network_graph():
     # --- Define Nodes ---
     granule_nodes = [f"GC{i+1}" for i in range(num_granule)]
     purkinje_nodes = [f"PC{i+1}" for i in range(num_purkinje)]
-    G.add_nodes_from(granule_nodes, color="blue")
+    G.add_nodes_from(granule_nodes, color="C9")
     G.add_nodes_from(purkinje_nodes, color="green")
-    G.add_node("IO", color="red")
+    G.add_node("IO", color="black")
 
     # --- Define Node Positions ---
     node_pos = {g: (0, i+1) for i, g in enumerate(granule_nodes)}  # Granule Cells at x = 0
@@ -451,7 +474,7 @@ def old_show_network_graph():
     node_pos["IO"] = (2, len(purkinje_nodes) // 2)  # Inferio Olive Cell at x = 2
 
     # --- Define Node Colors
-    node_colors = {node: "blue" if node.startswith("G") else "green" for node in G.nodes}
+    node_colors = {node: "C9" if node.startswith("G") else "green" for node in G.nodes}
     node_colors["IO"] = "red"
     node_colors_list = [node_colors[node] for node in G.nodes]
 
@@ -598,33 +621,49 @@ def run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket
 
     return [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np]
 
-def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1 = None, axes1 = None):
-    global buttons
+def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np):
+    global buttons, fig, gs, ax_network, ax_plots, ax_buttons
     
-    if fig1 is None or axes1 is None:
-        fig1, axes1 = plt.subplots(2, num_granule, figsize=(5 * num_granule, 8), sharex=True)
-        # Share y-axis within each row
-        for row in range(2):
-            for col in range(1, num_granule):  # Start from second column
-                axes1[row, col].sharey(axes1[row, 0])  # Share y-axis with first column
+    if gs == None or ax_network == None or ax_plots == None or ax_buttons == None:
+        gs = GridSpec(3, num_granule + 1, figure = fig, width_ratios=[1,1,1,0.3], height_ratios=[0.1,1,1])
+        ax_network = fig.add_subplot(gs[0, :])
+        ax_network.axis("off")
+        ax_plots = [[None for _ in range(num_granule + 1)] for _ in range(1,3)]
+        for row in range (1,3): # reserve first row for network graph
+            for col in range(num_granule):
+                ax_plots[row-1][col] = fig.add_subplot(gs[row, col])
+        ax_buttons = fig.add_subplot(gs[1:, -1])
+        ax_buttons.axis("off")
+        #ax_plots = fig.add_subplot(gs[1:, :]) 
+            #fig, axes = plt.subplots(3, num_granule, figsize=(3 * num_granule, 8), gridspec_kw={'height_ratios': [1] + [3] * 2})
     else:
         # Clear previous plots
-        axes1 = np.array(axes1)
+        #ax_plots = axes[1:, :] # reserve first row / upper part for network graph
         for row in range(2):
             for col in range(num_granule):
-                axes1[row,col].cla()
+                ax_plots[row][col].cla()
+
+    
+
+    # Share y-axis within each row
+    for row in range(2):
+        for col in range(num_granule):  # Start from second column
+            if row > 0: 
+                ax_plots[row][col].sharex(ax_plots[0][col])  # Share x-axis with first row
+            if col > 0:
+                ax_plots[row][col].sharey(ax_plots[row][0])  # Share y-axis with first column
 
     io_id = 0
     b_id = 0
     for granule in granule_cells:
         
-        ax1 = axes1[0, granule.gid]
+        ax1 = ax_plots[0][granule.gid]
         ax1.set_title(f"GC{granule.gid+1} Spiking Activity")
-        ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="blue")
+        ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="C9")
         ax1.plot(t_np, v_inferiorOlive_np[io_id], label=f"IO", color="black")
-        ax1.plot(t_np, v_basket_np[b_id], label=f"B", color="pink")
+        ax1.plot(t_np, v_basket_np[b_id], label=f"BC", color="C8")
 
-        ax2 = axes1[1, granule.gid]
+        ax2 = ax_plots[1][granule.gid]
         ax2.set_title(f"GC{granule.gid+1} Synaptic Weights")
         ax2.set_xlabel("Time (ms)")    
 
@@ -645,56 +684,55 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
         ax2.legend()
 
     # Label y-axes only on the first column
-    axes1[0, 0].set_ylabel("Membrane Voltage (mV)")
-    axes1[1, 0].set_ylabel("Synaptic Weight")
+    ax_plots[0][0].set_ylabel("Membrane Voltage (mV)")
+    ax_plots[1][0].set_ylabel("Synaptic Weight")
 
 
     # --- Button ---
 
     # Automatic Button
     if "automatic_button" not in buttons:
-        automatic_ax = fig1.add_axes([0.9, 0.7, 0.07, 0.1])
+        automatic_ax = fig.add_axes([0.9, 0.5, 0.07, 0.1])
         buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
         buttons["automatic_button"].on_clicked(toggle_mode)
 
     # State Button
     if "state_button" not in buttons:
-        state_ax = fig1.add_axes([0.9, 0.6, 0.07, 0.1])
+        state_ax = fig.add_axes([0.9, 0.4, 0.07, 0.1])
         buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
         buttons["state_button"].on_clicked(update_state)
 
     # Run Button
     if "run_button" not in buttons:
-        run_ax = fig1.add_axes([0.9, 0.5, 0.1, 0.05])
+        run_ax = fig.add_axes([0.9, 0.3, 0.1, 0.05])
         buttons["run_button"] = Button(run_ax, f"Run iteration {iter}")
         buttons["run_button"].on_clicked(update_granule_stimulation_and_plots)
 
     # Error Button
     if "error_button" not in buttons:
-        error_ax = fig1.add_axes([0.9, 0.4, 0.1, 0.05])
+        error_ax = fig.add_axes([0.9, 0.2, 0.1, 0.05])
         buttons["error_button"] = Button(error_ax, "Error")
         buttons["error_button"].on_clicked(update_inferior_olive_stimulation_and_plots)
 
     # Network Button
     if "network_button" not in buttons:
-        network_ax = fig1.add_axes([0.9, 0.3, 0.1, 0.05])
+        network_ax = fig.add_axes([0.9, 0.1, 0.1, 0.05])
         buttons["network_button"] = Button(network_ax, "Show network")
         buttons["network_button"].on_clicked(toggle_network_graph)
 
     # Reset Button
     if "reset_button" not in buttons:
-        reset_ax = fig1.add_axes([0.9, 0.2, 0.1, 0.05])
+        reset_ax = fig.add_axes([0.9, 0.0, 0.1, 0.05])
         buttons["reset_button"] = Button(reset_ax, "Reset")
         buttons["reset_button"].on_clicked(reset)
 
     plt.draw()
     plt.pause(1)
 
-    return [fig1, axes1]
 
 
 def main():
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1, iter
+    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig, axes, iter
     init_variables()
     create_connections()
     #stimulate_granule_cell()
@@ -713,7 +751,7 @@ main()
 try:
     while True:
         # Update the plot
-        fig1, axes1 = update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig1, axes1)
+        update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
         time.sleep(2) # Delay between iterations
 
 except KeyboardInterrupt:
