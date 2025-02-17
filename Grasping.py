@@ -1,6 +1,10 @@
 from pymata_aio.pymata3 import PyMata3
 from pymata_aio.constants import Constants
 
+#########################################
+# Upload StandardFirmata.ino to Arduino #
+#########################################
+
 # Open serial connection
 windows_port = 'COM8'
 linux_port = '/dev/ttyUSB0'
@@ -8,33 +12,33 @@ board = PyMata3(com_port=windows_port)
 
 #print(f"Constants.INPUT: {Constants.INPUT}, Constants.OUTPUT: {Constants.OUTPUT}, Constants.ANALOG: {Constants.ANALOG}, Constants.PWM: {Constants.PWM}")
 
-'''
-# List of all digital and analog pins for Arduino Due
-digital_pins = list(range(54))  # Digital pins 0-53
-analog_pins = list(range(12))   # Analog pins A0-A11
+def check_pins():
+    # List of all digital and analog pins for Arduino Due
+    digital_pins = list(range(54))  # Digital pins 0-53
+    analog_pins = list(range(12))   # Analog pins A0-A11
 
 
-# Checking Digital Pins (0-53)
-print("Checking Digital Pins:")
-for pin in digital_pins:
-    try:
-        board.set_pin_mode(pin, Constants.OUTPUT)  # Set as output mode
-        board.digital_write(pin, 1)  # Set HIGH
-        print(f"Digital Pin {pin}: OK")
-        board.digital_write(pin, 0)  # Set LOW
-    except Exception as e:
-        print(f"Digital Pin {pin}: Not accessible ({e})")
+    # Checking Digital Pins (0-53)
+    print("Checking Digital Pins:")
+    for pin in digital_pins:
+        try:
+            board.set_pin_mode(pin, Constants.OUTPUT)  # Set as output mode
+            board.digital_write(pin, 1)  # Set HIGH
+            print(f"Digital Pin {pin}: OK")
+            board.digital_write(pin, 0)  # Set LOW
+        except Exception as e:
+            print(f"Digital Pin {pin}: Not accessible ({e})")
 
-# Checking Analog Pins (A0-A11)
-print("\nChecking Analog Pins:")
-for pin in analog_pins:
-    try:
-        board.set_pin_mode(pin, Constants.ANALOG)  # Set as input mode
-        print(f"Analog Pin A{pin}: OK")
-    except Exception as e:
-        print(f"Analog Pin A{pin}: Not accessible ({e})")
-'''
+    # Checking Analog Pins (A0-A11)
+    print("\nChecking Analog Pins:")
+    for pin in analog_pins:
+        try:
+            board.set_pin_mode(pin, Constants.ANALOG)  # Set as input mode
+            print(f"Analog Pin A{pin}: OK")
+        except Exception as e:
+            print(f"Analog Pin A{pin}: Not accessible ({e})")
 
+# --- Pin Declaration --- 
 # Push Buttons
 PushB1_pin = 50
 PushB2_pin = 52
@@ -54,9 +58,9 @@ PS1_pin = 2
 PS2_pin = 3
 
 # Servos
-Servo1_pin = 2
+Servo1_pin = 2 # connect to M7 of Exoskeleton (Flexion)
 Servo2_pin = 3
-Servo3_pin = 4
+Servo3_pin = 4 # connect to M8 of Exoskeleton (Extension)
 Servo4_pin = 5
 # Define angles for servo motors
 Servo1_OUTLET = 110
@@ -136,6 +140,8 @@ def main():
                 board.analog_write(Servo1_pin, Servo1_INLET)
                 board.analog_write(Servo3_pin, Servo3_INLET)
                 board.sleep(2)
+
+                # 5 voltage levels related to 5 Purkinje cells
                 if POT1_voltage >= 2.5 and POT1_voltage < 3.0:
                     board.analog_write(COMP_pin, int(3.0 * 255 / 5))
                 elif POT1_voltage >= 3.0 and POT1_voltage < 3.5:
