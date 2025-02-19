@@ -58,9 +58,9 @@ PS1_pin = 2
 PS2_pin = 3
 
 # Servos
-Servo1_pin = 2 # connect to M7 of Exoskeleton (Flexion)
+Servo1_pin = 2 # connect to M7 of Exoskeleton (Extension)
 Servo2_pin = 3
-Servo3_pin = 4 # connect to M8 of Exoskeleton (Extension)
+Servo3_pin = 4 # connect to M8 of Exoskeleton (Flexion)
 Servo4_pin = 5
 # Define angles for servo motors
 Servo1_OUTLET = 110
@@ -135,8 +135,8 @@ def main():
 
             # Compressor
             if POT2_voltage >= 5.0:
-                board.servo_config(Servo1_pin) # Flexion
-                board.servo_config(Servo3_pin) # Extention
+                board.servo_config(Servo1_pin) # Extension 
+                board.servo_config(Servo3_pin) # Flexion
                 board.analog_write(Servo1_pin, Servo1_INLET)
                 board.analog_write(Servo3_pin, Servo3_INLET)
                 board.sleep(2)
@@ -212,12 +212,13 @@ def main():
 
             if PushB5_val != PushB5_val_old:
                 if PushB5_val == 0:
-                    # Reset servo pins
+                    # Set servos to outlet position to let air out
                     board.analog_write(Servo1_pin, Servo1_OUTLET)
                     board.analog_write(Servo2_pin, Servo2_OUTLET)
                     board.analog_write(Servo3_pin, Servo3_OUTLET)
                     board.analog_write(Servo4_pin, Servo4_OUTLET)
                     board.sleep(1)
+                    # Reset servo pins
                     board.set_pin_mode(Servo1_pin, Constants.INPUT)
                     board.set_pin_mode(Servo2_pin, Constants.INPUT)
                     board.set_pin_mode(Servo3_pin, Constants.INPUT)

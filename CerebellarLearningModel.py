@@ -8,18 +8,19 @@ from matplotlib.gridspec import GridSpec
 import networkx as nx
 import time
 
-
-
-
+from pymata_aio.pymata3 import PyMata3
+from pymata_aio.constants import Constants
 
 
 # using Python 3.8.20
+
+control_HW = True # Set True to control HW, set False to only simulate
 
 # --- Variable Initialization for plotting
 plt.ion()  # Turn on interactive mode
 fig = plt.figure(layout="constrained")
 gs, ax_network, ax_plots, ax_buttons = None, None, None, None
-#axes = None
+
 
 # --- Granule, Purkinje, and Inferior Olive Cell Classes ---
 class GranuleCell:
@@ -86,14 +87,19 @@ inh_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_basket)] # inh
 stimuli = []
 
 
-def init_variables():
-    global iter, state, mode, mode_dict, environment, animations, frequency, weights, weights_over_time, processed_GC_spikes, processed_pairs, buttons, purkinje_drawing
+def init_variables(control_HW=False):
+    global iter, state, mode, mode_dict, environment, pc_voltage_mapping, animations, frequency, weights, weights_over_time, processed_GC_spikes, processed_pairs, buttons, purkinje_drawing
 
     iter = 0
     state = 1  # User can change this state (0, 1, or 2) based on desired behavior
     mode = 0
     mode_dict = {0:"Manual", 1:"Auto"}
-    environment = {0:0, 1:2, 2:4} # "state:PC_ID" environment maps object_ID/state to the desired Purkinje Cell
+    environment = {0 : 0, 1 : 2, 2 : 4} # "state : PC_ID" --> environment maps object_ID/state to the desired Purkinje Cell
+    pc_voltage_mapping = {0 : 3.0,      # "PC_ID : actuator voltage" --> pc_voltage_mapping maps each Purkinje Cell to a specific voltage level to control the actuator
+                          1 : 3.5, 
+                          2 : 4.0, 
+                          3 : 4.5, 
+                          4 : 5.0}
     animations = []
     frequency = 50 # Hz
     weights = {}
@@ -102,6 +108,98 @@ def init_variables():
     processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
     buttons = {}
     purkinje_drawing = []
+
+    if control_HW:
+        global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
+        global Servo1_OUTLET, Servo1_INLET, Servo1_HOLD, Servo2_OUTLET, Servo2_INLET, Servo2_HOLD, Servo3_OUTLET, Servo3_INLET, Servo3_HOLD, Servo4_OUTLET, Servo4_INLET, Servo4_HOLD
+        global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old
+        #########################################
+        # Upload StandardFirmata.ino to Arduino #
+        #########################################
+        
+        # Open serial connection to Arduino
+        windows_port = 'COM8'
+        linux_port = '/dev/ttyUSB0'
+        board = PyMata3(com_port=windows_port)
+
+        # --- Pin Declaration --- 
+        # Push Buttons
+        PushB1_pin = 50
+        PushB2_pin = 52
+        PushB3_pin = 48
+        PushB4_pin = 46
+        PushB5_pin = 44 
+
+        # Potentiometers
+        POT1_pin = 0
+        POT2_pin = 1
+
+        # Compressor
+        COMP_pin = 12
+
+        # Pressure sensors
+        PS1_pin = 2
+        PS2_pin = 3
+
+        # Servos
+        Servo1_pin = 2 # connect to M7 of Exoskeleton (Extension)
+        Servo2_pin = 3
+        Servo3_pin = 4 # connect to M8 of Exoskeleton (Flexion)
+        Servo4_pin = 5
+        # Define angles for servo motors
+        Servo1_OUTLET = 110
+        Servo1_INLET = 20
+        Servo1_HOLD = 65
+        Servo2_OUTLET = 130
+        Servo2_INLET = 40
+        Servo2_HOLD = 85
+        Servo3_OUTLET = 130
+        Servo3_INLET = 30
+        Servo3_HOLD = 80
+        Servo4_OUTLET = 130
+        Servo4_INLET = 40
+        Servo4_HOLD = 85
+
+        # --- Pin Allocation ---
+        # Potentiometers
+        board.set_pin_mode(POT1_pin, Constants.ANALOG)
+        board.set_pin_mode(POT2_pin, Constants.ANALOG)
+
+        # Compressor
+        board.set_pin_mode(COMP_pin, Constants.PWM)
+
+        # Pressure sensors
+        board.set_pin_mode(PS1_pin, Constants.ANALOG)
+        board.set_pin_mode(PS2_pin, Constants.ANALOG)
+
+        # Push Buttons
+        board.set_pin_mode(PushB1_pin, Constants.INPUT)
+        board.set_pin_mode(PushB2_pin, Constants.INPUT)
+        board.set_pin_mode(PushB3_pin, Constants.INPUT)
+        board.set_pin_mode(PushB4_pin, Constants.INPUT)
+        board.set_pin_mode(PushB5_pin, Constants.INPUT)
+
+        PushB1_val_old = board.digital_read(PushB1_pin)
+        PushB2_val_old = board.digital_read(PushB2_pin)
+        PushB3_val_old = board.digital_read(PushB3_pin)
+        PushB4_val_old = board.digital_read(PushB4_pin)
+        PushB5_val_old = board.digital_read(PushB5_pin)
+
+        # Put servos in outlet position
+        board.servo_config(Servo1_pin)
+        board.servo_config(Servo2_pin)
+        board.servo_config(Servo3_pin)
+        board.servo_config(Servo4_pin)
+        board.analog_write(Servo1_pin, Servo1_OUTLET)
+        board.analog_write(Servo2_pin, Servo2_OUTLET)
+        board.analog_write(Servo3_pin, Servo3_OUTLET)
+        board.analog_write(Servo4_pin, Servo4_OUTLET)
+        board.sleep(1)
+        # Reset servo pins
+        board.set_pin_mode(Servo1_pin, Constants.INPUT)
+        board.set_pin_mode(Servo2_pin, Constants.INPUT)
+        board.set_pin_mode(Servo3_pin, Constants.INPUT)
+        board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 
 def create_connections():
@@ -196,7 +294,43 @@ def activate_highest_weight_PC(granule_gid):
             
             #print(f"Granule {granule_gid+1} spiked at {spike_time} → Triggering Purkinje {active_purkinje.gid+1} (weight {max_weight})")
             #print(f"{h.t} PC{purkinje.gid+1} with weight {pf_ncs[granule_gid][purkinje.gid].weight[0]} and threshold {pf_ncs[granule_gid][purkinje.gid].threshold}")
-            
+
+def release_actuator():
+    # Config servo pins
+    board.servo_config(Servo1_pin)
+    board.servo_config(Servo2_pin)
+    board.servo_config(Servo3_pin) 
+    board.servo_config(Servo4_pin)
+    board.sleep(1)
+    # Set servos to outlet position to let air out
+    board.analog_write(Servo1_pin, Servo1_OUTLET)
+    board.analog_write(Servo2_pin, Servo2_OUTLET)
+    board.analog_write(Servo3_pin, Servo3_OUTLET)
+    board.analog_write(Servo4_pin, Servo4_OUTLET)
+    board.sleep(2)
+    # Reset servo pins
+    board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo2_pin, Constants.INPUT)
+    board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    board.set_pin_mode(Servo4_pin, Constants.INPUT)
+
+def control_actuator(voltage):
+    board.servo_config(Servo1_pin) # Extension 
+    board.servo_config(Servo3_pin) # Flexion
+    #board.analog_write(Servo1_pin, Servo1_INLET)
+    board.analog_write(Servo3_pin, Servo3_INLET)
+    board.sleep(2)
+    if voltage is not None:
+        board.analog_write(COMP_pin, int(voltage * 255 / 5))
+    board.sleep(0.5)
+    #board.analog_write(Servo1_pin, Servo1_HOLD) # Stop extension 
+    board.sleep(2.5)
+    board.analog_write(Servo3_pin, Servo3_HOLD) # Stop flexion
+    board.analog_write(COMP_pin, 0)
+    # Reset servo pins
+    board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo3_pin, Constants.INPUT)
+
 
 def stimulate_granule_cell():
     # --- Stimulate Granule Cells Based on State ---
@@ -221,9 +355,12 @@ def update_granule_stimulation_and_plots(event=None):
     g_id = state
     activate_highest_weight_PC(g_id)
 
+    # Identify active purkinje cell
+    b_id = 0
+    p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+    
     if buttons["network_button"].label.get_text() == "Hide network":
-        b_id = 0
-        p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        # Run simple spike animation
         spike, = ax_network.plot([], [], 'mo', markersize=15)
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, 
                                       fargs=(spike, 0, p_id, g_id))
@@ -237,6 +374,22 @@ def update_granule_stimulation_and_plots(event=None):
 
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
+
+    # --- Control of actuator ---
+    if control_HW:
+        actuator_voltage = pc_voltage_mapping[p_id] # look up table for purkinje cell to voltage mapping
+
+        print("Releasing air...")
+        release_actuator()
+        board.sleep(1)
+        print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
+
+        
+        print(f"Controlling actuator with {actuator_voltage}V (PC{p_id+1})")
+        control_actuator(actuator_voltage)
+        board.sleep(1)
+        print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
+
 
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
@@ -277,9 +430,11 @@ def update_inferior_olive_stimulation_and_plots(event=None):
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, animations
     
     if buttons["network_button"].label.get_text() == "Hide network":
+        # Identify active purkinje cell
         b_id = 0
         p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
 
+        # Run complex spike animation
         spike, = ax_network.plot([], [], 'mo', markersize=15)
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 1, p_id))
         animations.append(ani)
@@ -299,6 +454,7 @@ def update_state(event):
         if buttons["state_button"].value_selected == f"State {i+1}":
             state = i
 
+# Toggle between manual and automatic mode
 def toggle_mode(event=None):
     global state, mode, mode_dict, active_purkinje
 
@@ -310,7 +466,6 @@ def toggle_mode(event=None):
     buttons["error_button"].ax.set_visible(True if mode == 0 else False)
     buttons["network_button"].ax.set_visible(True if mode == 0 else False)
     buttons["reset_button"].ax.set_visible(True if mode == 0 else False)
-
 
     # Trigger error automatically
     if mode == 1: # automatic mode
@@ -427,7 +582,7 @@ def show_network_graph():
     basket_x = purkinje_x[-1] + 0.4
     
     purkinje_y = 0
-    granule_y = -height  # Bottom row
+    granule_y = -height*3/4  # Bottom row
     basket_y = purkinje_y
     olive_y = -height*3/4  # Inferior Olive position
 
@@ -467,13 +622,13 @@ def show_network_graph():
         purkinje_drawing.append(drawing)
 
     # Labels
-    ax_network.text(purkinje_x[0] - 0.7, purkinje_y - 0.7, "Purkinje Cells", fontsize=12, color=purkinje_colors[0])
+    ax_network.text(purkinje_x[0] - 0.7, purkinje_y - 0.4, "Purkinje Cells", fontsize=12, color=purkinje_colors[0])
     for i, x in enumerate(purkinje_x):
-        ax_network.text(purkinje_x[i] - 0.3, purkinje_y - 0.5, f"PC{i+1}", fontsize=12, color=purkinje_colors[i])
-    ax_network.text(granule_x[0] - 0.1, granule_y - 0.7, "Granule Cells", fontsize=12, color="C9")
+        ax_network.text(purkinje_x[i] - 0.3, purkinje_y - 0.2, f"PC{i+1}", fontsize=12, color=purkinje_colors[i])
+    ax_network.text(granule_x[0] - 0.1, granule_y - 0.4, "Granule Cells", fontsize=12, color="C9")
     for i, x in enumerate(granule_x):
-        ax_network.text(granule_x[i] - 0.1, granule_y - 0.4, f"GC{i+1}", fontsize=12, color="C9")
-    ax_network.text(granule_x[1], purkinje_y + (num_granule) * width + 0.2, "Parallel Fibers (PF)", fontsize=12, color="C9")
+        ax_network.text(granule_x[i] - 0.1, granule_y - 0.2, f"GC{i+1}", fontsize=12, color="C9")
+    ax_network.text(granule_x[1], purkinje_y + (num_granule) * width + 0.1, "Parallel Fibers (PF)", fontsize=12, color="C9")
     ax_network.text(olive_x + 0.2, olive_y, "Inferior Olive (IO)", fontsize=12, color="black")
     ax_network.text(purkinje_x[-1] + 0.2, olive_y + abs(purkinje_y - olive_y) / 2, "Climbing Fibers (CF)", fontsize=12, color="black")
     ax_network.text(basket_x + 0.2, basket_y, "Basket Cell (BC)", fontsize=12, color="C8")
@@ -710,41 +865,42 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
     ax_plots[1][0].set_ylabel("Synaptic Weight")
 
 
-    # --- Button ---
+    # --- Buttons ---
 
-    # Automatic Button
-    if "automatic_button" not in buttons:
-        automatic_ax = fig.add_axes([0.9, 0.5, 0.07, 0.1])
-        buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
-        buttons["automatic_button"].on_clicked(toggle_mode)
+    if control_HW == False: # automatic mode only available in simulation
+        # Automatic Button
+        if "automatic_button" not in buttons:
+            automatic_ax = fig.add_axes([0.9, 0.55, 0.07, 0.1])
+            buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
+            buttons["automatic_button"].on_clicked(toggle_mode)
 
     # State Button
     if "state_button" not in buttons:
-        state_ax = fig.add_axes([0.9, 0.4, 0.07, 0.1])
+        state_ax = fig.add_axes([0.9, 0.45, 0.07, 0.1])
         buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
         buttons["state_button"].on_clicked(update_state)
 
     # Run Button
     if "run_button" not in buttons:
-        run_ax = fig.add_axes([0.9, 0.3, 0.1, 0.05])
+        run_ax = fig.add_axes([0.9, 0.35, 0.1, 0.05])
         buttons["run_button"] = Button(run_ax, f"Run iteration {iter}")
         buttons["run_button"].on_clicked(update_granule_stimulation_and_plots)
 
     # Error Button
     if "error_button" not in buttons:
-        error_ax = fig.add_axes([0.9, 0.2, 0.1, 0.05])
+        error_ax = fig.add_axes([0.9, 0.25, 0.1, 0.05])
         buttons["error_button"] = Button(error_ax, "Error")
         buttons["error_button"].on_clicked(update_inferior_olive_stimulation_and_plots)
 
     # Network Button
     if "network_button" not in buttons:
-        network_ax = fig.add_axes([0.9, 0.1, 0.1, 0.05])
+        network_ax = fig.add_axes([0.9, 0.15, 0.1, 0.05])
         buttons["network_button"] = Button(network_ax, "Show network")
         buttons["network_button"].on_clicked(toggle_network_graph)
 
     # Reset Button
     if "reset_button" not in buttons:
-        reset_ax = fig.add_axes([0.9, 0.0, 0.1, 0.05])
+        reset_ax = fig.add_axes([0.9, 0.05, 0.1, 0.05])
         buttons["reset_button"] = Button(reset_ax, "Reset")
         buttons["reset_button"].on_clicked(reset)
 
@@ -753,11 +909,10 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
 
 
 
-def main():
+def main(control_HW=False):
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig, axes, iter
-    init_variables()
+    init_variables(control_HW)
     create_connections()
-    #stimulate_granule_cell()
     [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket] = recording()
     h.finitialize(-65)
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
@@ -766,7 +921,7 @@ def main():
     
 
 
-main()
+main(control_HW)
 
 
 
@@ -774,10 +929,34 @@ try:
     while True:
         # Update the plot
         update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
-        time.sleep(2) # Delay between iterations
+        time.sleep(0.1) # Delay between iterations
+
+        if control_HW:
+            # Pressure sensor
+            PS1_val = board.analog_read(PS1_pin)
+            PS2_val = board.analog_read(PS2_pin)
+            PS1_voltage = PS1_val * 5 / 1023
+            PS2_voltage = PS2_val * 5 / 1023
+
+            PushB5_val = board.digital_read(PushB5_pin)
+            if PushB5_val != PushB5_val_old:
+                if PushB5_val == 0:
+                    # Set servos to outlet position to let air out
+                    board.analog_write(Servo1_pin, Servo1_OUTLET)
+                    board.analog_write(Servo2_pin, Servo2_OUTLET)
+                    board.analog_write(Servo3_pin, Servo3_OUTLET)
+                    board.analog_write(Servo4_pin, Servo4_OUTLET)
+                    board.sleep(1)
+                    # Reset servo pins
+                    board.set_pin_mode(Servo1_pin, Constants.INPUT)
+                    board.set_pin_mode(Servo2_pin, Constants.INPUT)
+                    board.set_pin_mode(Servo3_pin, Constants.INPUT)
+                    board.set_pin_mode(Servo4_pin, Constants.INPUT)
+                PushB5_val_old = PushB5_val
 
 except KeyboardInterrupt:
     print("Simulation stopped by user.")
+    release_actuator()
     plt.show()
 
 
