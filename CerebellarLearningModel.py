@@ -1,6 +1,7 @@
 from neuron import h, gui
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import matplotlib.animation as animation
 from matplotlib.widgets import Button
 from matplotlib.widgets import RadioButtons
@@ -14,15 +15,7 @@ from pymata_aio.constants import Constants
 
 # using Python 3.8.20
 
-control_HW = True # Set True to control HW, set False to only simulate
-
-# --- Variable Initialization for plotting
-plt.ion()  # Turn on interactive mode
-fig = plt.figure(layout="constrained")
-gs, ax_network, ax_plots, ax_buttons = None, None, None, None
-
-
-# --- Granule, Purkinje, and Inferior Olive Cell Classes ---
+# --- Granule, Purkinje, Inferior Olive, and Basket Cell Classes ---
 class GranuleCell:
     def __init__(self, gid):
         self.gid = gid
@@ -51,156 +44,167 @@ class BasketCell:
         self.soma.L = self.soma.diam = 20
         self.soma.insert('hh')
 
-# --- Create Network ---
-num_granule = 3
-num_purkinje = 5
-num_inferior_olive = 1
-num_basket = 1
+def init_variables():
+    global iter, buttons, state, mode, control_HW, mode_dict, control_dict, environment, pc_voltage_mapping
+    global fig, gs, ax_network, ax_plots, ax_buttons, animations, purkinje_drawing
+    global num_granule, num_purkinje, num_inferior_olive, num_basket, granule_cells, purkinje_cells, inferior_olive_cells, basket_cells
+    global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
+    global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, max_weight, min_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
+    global tau_plus, tau_minus, A_plus, A_minus, dt_LTP, dt_LTD
 
-granule_cells = [GranuleCell(i) for i in range(num_granule)]
-purkinje_cells = [PurkinjeCell(i) for i in range(num_purkinje)]
-inferior_olive_cells = [InferiorOliveCell(i) for i in range(num_inferior_olive)]
-basket_cells = [BasketCell(i) for i in range(num_basket)]
-
-# --- STDP Parameters ---
-tau_plus = 20  
-tau_minus = 20  
-A_plus = 0.005  
-A_minus = 0.005
-dt_LTP = 10  # Time window for LTP (ms)
-dt_LTD = -10  # Time window for LTD (ms)
-pf_initial_weight = 0.01 # Parallel fiber initial weight
-cf_initial_weight = 0.5 # Climbing fiber initial weight
-basket_initial_weight = 0.1 # Basket to Purkinje weight
-max_weight = 0.1
-min_weight = 0.001
-
-
-# --- Create Synapses and Connections ---
-pf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber synapses
-pf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber netcons
-cf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber synapses
-cf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber netcons
-inh_syns = [[None for _ in range(num_purkinje)] for _ in range(num_basket)] # inhibitory synapses
-inh_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_basket)] # inhibitory netcons
-
-stimuli = []
-
-
-def init_variables(control_HW=False):
-    global iter, state, mode, mode_dict, environment, pc_voltage_mapping, animations, frequency, weights, weights_over_time, processed_GC_spikes, processed_pairs, buttons, purkinje_drawing
-
+    # --- GUI and Control ---
     iter = 0
-    state = 1  # User can change this state (0, 1, or 2) based on desired behavior
-    mode = 0
+    buttons = {}
+    state = 1                           # 0: activated granule cell 0, 1: activated granule cell 1, 2: activated granule cell 2
+    mode = 0                            # 0: manual, 1: automatic
+    control_HW = 0                      # 0: simulation, 1: control HW
     mode_dict = {0:"Manual", 1:"Auto"}
+    control_dict = {0:"Simulation", 1:"Control HW"}
     environment = {0 : 0, 1 : 2, 2 : 4} # "state : PC_ID" --> environment maps object_ID/state to the desired Purkinje Cell
     pc_voltage_mapping = {0 : 3.0,      # "PC_ID : actuator voltage" --> pc_voltage_mapping maps each Purkinje Cell to a specific voltage level to control the actuator
                           1 : 3.5, 
                           2 : 4.0, 
                           3 : 4.5, 
                           4 : 5.0}
+    
+    # --- Plotting ---
+    plt.ion()  # Turn on interactive mode
+    fig = plt.figure(layout="constrained")
+    gs, ax_network, ax_plots, ax_buttons = None, None, None, None
     animations = []
-    frequency = 50 # Hz
-    weights = {}
-    weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
-    processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
-    processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
-    buttons = {}
     purkinje_drawing = []
 
-    if control_HW:
-        global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
-        global Servo1_OUTLET, Servo1_INLET, Servo1_HOLD, Servo2_OUTLET, Servo2_INLET, Servo2_HOLD, Servo3_OUTLET, Servo3_INLET, Servo3_HOLD, Servo4_OUTLET, Servo4_INLET, Servo4_HOLD
-        global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old
-        #########################################
-        # Upload StandardFirmata.ino to Arduino #
-        #########################################
-        
-        # Open serial connection to Arduino
-        windows_port = 'COM8'
-        linux_port = '/dev/ttyUSB0'
-        board = PyMata3(com_port=windows_port)
+    # --- Create Network ---
+    num_granule = 3
+    num_purkinje = 5
+    num_inferior_olive = 1
+    num_basket = 1
 
-        # --- Pin Declaration --- 
-        # Push Buttons
-        PushB1_pin = 50
-        PushB2_pin = 52
-        PushB3_pin = 48
-        PushB4_pin = 46
-        PushB5_pin = 44 
+    granule_cells = [GranuleCell(i) for i in range(num_granule)]
+    purkinje_cells = [PurkinjeCell(i) for i in range(num_purkinje)]
+    inferior_olive_cells = [InferiorOliveCell(i) for i in range(num_inferior_olive)]
+    basket_cells = [BasketCell(i) for i in range(num_basket)]
 
-        # Potentiometers
-        POT1_pin = 0
-        POT2_pin = 1
+    # --- Create Synapses and Connections ---
+    pf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber synapses
+    pf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_granule)] # parallel fiber netcons
+    cf_syns = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber synapses
+    cf_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_inferior_olive)] # climbing fiber netcons
+    inh_syns = [[None for _ in range(num_purkinje)] for _ in range(num_basket)] # inhibitory synapses
+    inh_ncs = [[None for _ in range(num_purkinje)] for _ in range(num_basket)] # inhibitory netcons
 
-        # Compressor
-        COMP_pin = 12
+    # --- Spikes and Weights ---
+    weights = {}
+    weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
+    pf_initial_weight = 0.01 # Parallel fiber initial weight
+    cf_initial_weight = 0.5 # Climbing fiber initial weight
+    basket_initial_weight = 0.1 # Basket to Purkinje weight
+    max_weight = 0.1
+    min_weight = 0.01
+    stimuli = []
+    frequency = 50 # Hz
+    processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
+    processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
 
-        # Pressure sensors
-        PS1_pin = 2
-        PS2_pin = 3
+    # --- Learning Parameters ---
+    tau_plus = 20  
+    tau_minus = 20  
+    A_plus = 0.005  
+    A_minus = 0.005
+    dt_LTP = 10  # Time window for LTP (ms)
+    dt_LTD = -10  # Time window for LTD (ms)
 
-        # Servos
-        Servo1_pin = 2 # connect to M7 of Exoskeleton (Extension)
-        Servo2_pin = 3
-        Servo3_pin = 4 # connect to M8 of Exoskeleton (Flexion)
-        Servo4_pin = 5
-        # Define angles for servo motors
-        Servo1_OUTLET = 110
-        Servo1_INLET = 20
-        Servo1_HOLD = 65
-        Servo2_OUTLET = 130
-        Servo2_INLET = 40
-        Servo2_HOLD = 85
-        Servo3_OUTLET = 130
-        Servo3_INLET = 30
-        Servo3_HOLD = 80
-        Servo4_OUTLET = 130
-        Servo4_INLET = 40
-        Servo4_HOLD = 85
+def init_HW():
+    global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
+    global Servo1_OUTLET, Servo1_INLET, Servo1_HOLD, Servo2_OUTLET, Servo2_INLET, Servo2_HOLD, Servo3_OUTLET, Servo3_INLET, Servo3_HOLD, Servo4_OUTLET, Servo4_INLET, Servo4_HOLD
+    global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old
+    #########################################
+    # Upload StandardFirmata.ino to Arduino #
+    #########################################
+    
+    # Open serial connection to Arduino
+    windows_port = 'COM8'
+    linux_port = '/dev/ttyUSB0'
+    board = PyMata3(com_port=windows_port)
 
-        # --- Pin Allocation ---
-        # Potentiometers
-        board.set_pin_mode(POT1_pin, Constants.ANALOG)
-        board.set_pin_mode(POT2_pin, Constants.ANALOG)
+    # --- Pin Declaration --- 
+    # Push Buttons
+    PushB1_pin = 50
+    PushB2_pin = 52
+    PushB3_pin = 48
+    PushB4_pin = 46
+    PushB5_pin = 44 
 
-        # Compressor
-        board.set_pin_mode(COMP_pin, Constants.PWM)
+    # Potentiometers
+    POT1_pin = 0
+    POT2_pin = 1
 
-        # Pressure sensors
-        board.set_pin_mode(PS1_pin, Constants.ANALOG)
-        board.set_pin_mode(PS2_pin, Constants.ANALOG)
+    # Compressor
+    COMP_pin = 12
 
-        # Push Buttons
-        board.set_pin_mode(PushB1_pin, Constants.INPUT)
-        board.set_pin_mode(PushB2_pin, Constants.INPUT)
-        board.set_pin_mode(PushB3_pin, Constants.INPUT)
-        board.set_pin_mode(PushB4_pin, Constants.INPUT)
-        board.set_pin_mode(PushB5_pin, Constants.INPUT)
+    # Pressure sensors
+    PS1_pin = 2
+    PS2_pin = 3
 
-        PushB1_val_old = board.digital_read(PushB1_pin)
-        PushB2_val_old = board.digital_read(PushB2_pin)
-        PushB3_val_old = board.digital_read(PushB3_pin)
-        PushB4_val_old = board.digital_read(PushB4_pin)
-        PushB5_val_old = board.digital_read(PushB5_pin)
+    # Servos
+    Servo1_pin = 2 # connect to M7 of Exoskeleton (Extension)
+    Servo2_pin = 3
+    Servo3_pin = 4 # connect to M8 of Exoskeleton (Flexion)
+    Servo4_pin = 5
+    # Define angles for servo motors
+    Servo1_OUTLET = 110
+    Servo1_INLET = 20
+    Servo1_HOLD = 65
+    Servo2_OUTLET = 130
+    Servo2_INLET = 40
+    Servo2_HOLD = 85
+    Servo3_OUTLET = 130
+    Servo3_INLET = 30
+    Servo3_HOLD = 80
+    Servo4_OUTLET = 130
+    Servo4_INLET = 40
+    Servo4_HOLD = 85
 
-        # Put servos in outlet position
-        board.servo_config(Servo1_pin)
-        board.servo_config(Servo2_pin)
-        board.servo_config(Servo3_pin)
-        board.servo_config(Servo4_pin)
-        board.analog_write(Servo1_pin, Servo1_OUTLET)
-        board.analog_write(Servo2_pin, Servo2_OUTLET)
-        board.analog_write(Servo3_pin, Servo3_OUTLET)
-        board.analog_write(Servo4_pin, Servo4_OUTLET)
-        board.sleep(1)
-        # Reset servo pins
-        board.set_pin_mode(Servo1_pin, Constants.INPUT)
-        board.set_pin_mode(Servo2_pin, Constants.INPUT)
-        board.set_pin_mode(Servo3_pin, Constants.INPUT)
-        board.set_pin_mode(Servo4_pin, Constants.INPUT)
+    # --- Pin Allocation ---
+    # Potentiometers
+    board.set_pin_mode(POT1_pin, Constants.ANALOG)
+    board.set_pin_mode(POT2_pin, Constants.ANALOG)
 
+    # Compressor
+    board.set_pin_mode(COMP_pin, Constants.PWM)
+
+    # Pressure sensors
+    board.set_pin_mode(PS1_pin, Constants.ANALOG)
+    board.set_pin_mode(PS2_pin, Constants.ANALOG)
+
+    # Push Buttons
+    board.set_pin_mode(PushB1_pin, Constants.INPUT)
+    board.set_pin_mode(PushB2_pin, Constants.INPUT)
+    board.set_pin_mode(PushB3_pin, Constants.INPUT)
+    board.set_pin_mode(PushB4_pin, Constants.INPUT)
+    board.set_pin_mode(PushB5_pin, Constants.INPUT)
+
+    PushB1_val_old = board.digital_read(PushB1_pin)
+    PushB2_val_old = board.digital_read(PushB2_pin)
+    PushB3_val_old = board.digital_read(PushB3_pin)
+    PushB4_val_old = board.digital_read(PushB4_pin)
+    PushB5_val_old = board.digital_read(PushB5_pin)
+
+    # Put servos in outlet position
+    board.servo_config(Servo1_pin)
+    board.servo_config(Servo2_pin)
+    board.servo_config(Servo3_pin)
+    board.servo_config(Servo4_pin)
+    board.analog_write(Servo1_pin, Servo1_OUTLET)
+    board.analog_write(Servo2_pin, Servo2_OUTLET)
+    board.analog_write(Servo3_pin, Servo3_OUTLET)
+    board.analog_write(Servo4_pin, Servo4_OUTLET)
+    board.sleep(1)
+    # Reset servo pins
+    board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo2_pin, Constants.INPUT)
+    board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def create_connections():
     # Granule → Purkinje Connections (excitatory)
@@ -246,7 +250,6 @@ def create_connections():
 
 def activate_highest_weight_PC(granule_gid):
     global active_purkinje, inh_syns, inh_ncs, stimuli
-
     
     max_weight = -np.inf
     active_purkinje = None
@@ -331,7 +334,6 @@ def control_actuator(voltage):
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
 
-
 def stimulate_granule_cell():
     # --- Stimulate Granule Cells Based on State ---
     g_id = state
@@ -390,8 +392,6 @@ def update_granule_stimulation_and_plots(event=None):
         board.sleep(1)
         print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
 
-
-
 # Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell():
     i_id = 0
@@ -425,7 +425,6 @@ def stimulate_inferior_olive_cell():
     #    basket_stim.amp = stim.amp # same as inferior olive
     #    stimuli.append(basket_stim)
 
-
 def update_inferior_olive_stimulation_and_plots(event=None):
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, animations
     
@@ -446,13 +445,25 @@ def update_inferior_olive_stimulation_and_plots(event=None):
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
 
-
 # Update state variable
 def update_state(event):
     global state, buttons
     for i in range(3):
         if buttons["state_button"].value_selected == f"State {i+1}":
             state = i
+
+# Toggle between simulation of controlling HW
+def toggle_control(event=None):
+    global control_HW
+
+    control_HW = next(i for i, value in control_dict.items() if value == buttons["hardware_button"].value_selected)
+
+    # Deactivate automatic mode when controlling HW
+    buttons["automatic_button"].ax.set_visible(True if control_HW == 0 else False)
+ 
+    # Initialize HW
+    if control_HW == 1:
+        init_HW()
 
 # Toggle between manual and automatic mode
 def toggle_mode(event=None):
@@ -461,7 +472,6 @@ def toggle_mode(event=None):
     mode = next(i for i, value in mode_dict.items() if value == buttons["automatic_button"].value_selected)
 
     # Toggle button visibilities
-    #buttons["state_button"].ax.set_visible(True if mode == 0 else False)
     buttons["run_button"].ax.set_visible(True if mode == 0 else False)
     buttons["error_button"].ax.set_visible(True if mode == 0 else False)
     buttons["network_button"].ax.set_visible(True if mode == 0 else False)
@@ -480,7 +490,7 @@ def toggle_mode(event=None):
 
         buttons["automatic_button"].set_active(0)
 
-def toggle_network_graph(event):
+def toggle_network_graph(event=None):
     global buttons, ax_network
     if buttons["network_button"].label.get_text() == "Hide network":
         buttons["network_button"].label.set_text("Show network")
@@ -492,14 +502,23 @@ def toggle_network_graph(event):
         show_network_graph()
         gs.set_height_ratios([1.5, 1, 1])
 
-def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=[2]*num_granule):
+def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=2):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
     purkinje_drawing = []
 
     # Dendritic tree
     for i in range(num_granule):  # Branching
-        drawing = ax.plot([x, x + (i-1) * width], [y, y + (i+1) * width], color=color, lw=line_width[i])
-        purkinje_drawing.append(drawing[0])
+        #drawing = ax.plot([x, x + (i-1) * width], [y, y + (i+1) * width], color=color, lw=line_width[i] if np.isscalar(line_width) is not True else line_width)
+        #purkinje_drawing.append(drawing[0])
+        top_width =  (line_width[i] if np.isscalar(line_width) is not True else line_width)
+        triangle = patches.Polygon([
+            (x + (i-1) * width - top_width / 2, y + (i+1) * width),  # Left top
+            (x + (i-1) * width + top_width / 2, y + (i+1) * width),  # Right top
+            (x, y)  # Bottom center
+        ], closed=True, color=color, alpha=0.6)  # Slight transparency
+
+        ax.add_patch(triangle)
+        purkinje_drawing.append(triangle)
     
     # Axons
     drawing = ax.plot([x, x], [y, y - height], color=color, lw=4)
@@ -539,6 +558,37 @@ def draw_climbing_fiber(ax, x, y_start, y_end, width=0.5):
 def update_weights_in_network():
     global ax_network, purkinje_drawing
 
+    width = 0.5
+
+    # --- Normalize Triangle Widths ---
+    min_w, max_w = min_weight, max_weight
+    triangle_widths = np.empty((num_granule, num_purkinje))
+
+    if max_w > min_w:
+        for g in range(num_granule):
+            for p in range(num_purkinje):
+                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) 
+    else:
+        triangle_widths.fill(0.5)
+
+    # Update existing Purkinje triangles
+    for i, purkinje_group in enumerate(purkinje_drawing):
+        for j, triangle in enumerate(purkinje_group[:-2]):  # Ignore axon & soma
+            if isinstance(triangle, patches.Polygon):  
+                x, y = triangle.xy[2]  # Fixed bottom point
+                top_width = triangle_widths[j, i]
+                # Update triangle shape
+                new_xy = [
+                    (x + (j-1) * width - top_width / 2, y + (j+1) * width),  # Left top
+                    (x + (j-1) * width + top_width / 2, y + (j+1) * width),  # Right top
+                    (x, y)  # Bottom center
+                ]
+                triangle.set_xy(new_xy)  # Update vertices
+
+
+def old_update_weights_in_network():
+    global ax_network, purkinje_drawing
+
     height = 1
     width = 0.5
 
@@ -553,7 +603,7 @@ def update_weights_in_network():
     if max_w > min_w:  # Avoid division by zero
         for g in range(num_granule):
             for p in range(num_purkinje):
-                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w) * 5 + 1  # Scale to range 1-6
+                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w) 
     else:
         for g in range(num_granule):
             for p in range(num_purkinje):
@@ -595,7 +645,7 @@ def show_network_graph():
     if max_w > min_w:  # Avoid division by zero
         for g in range(num_granule):
             for p in range(num_purkinje):
-                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w) * 5 + 1  # Scale to range 1-6
+                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w)
     else:
         for g in range(num_granule):
             for p in range(num_purkinje):
@@ -685,7 +735,6 @@ def update_animation(frame, spike, spike_type=0, p_id=0, g_id=0): # spike_type =
 
     return [spike]
     
-
 def reset(event):
     None
 
@@ -702,7 +751,6 @@ def update_weights(pre_gid, post_gid, delta_t, t):
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
     # Update netcon weight
     pf_ncs[pre_gid][post_gid].weight[0] = np.clip(new_weight, min_weight, max_weight)
-
     
 def recording():
     # --- Record Spiking Activity and Voltages---
@@ -866,35 +914,39 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
 
 
     # --- Buttons ---
+    # Automatic Button
+    if "automatic_button" not in buttons:
+        automatic_ax = fig.add_axes([0.9, 0.45, 0.1, 0.1])
+        buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
+        buttons["automatic_button"].on_clicked(toggle_mode)
 
-    if control_HW == False: # automatic mode only available in simulation
-        # Automatic Button
-        if "automatic_button" not in buttons:
-            automatic_ax = fig.add_axes([0.9, 0.55, 0.07, 0.1])
-            buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
-            buttons["automatic_button"].on_clicked(toggle_mode)
+    # Hardware Button
+    if "hardware_button" not in buttons:
+        hardware_ax = fig.add_axes([0.9, 0.35, 0.1, 0.1])
+        buttons["hardware_button"] = RadioButtons(hardware_ax, (control_dict[0], control_dict[1]), active=control_HW)
+        buttons["hardware_button"].on_clicked(toggle_control)
 
     # State Button
     if "state_button" not in buttons:
-        state_ax = fig.add_axes([0.9, 0.45, 0.07, 0.1])
+        state_ax = fig.add_axes([0.9, 0.25, 0.1, 0.1])
         buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
         buttons["state_button"].on_clicked(update_state)
 
     # Run Button
     if "run_button" not in buttons:
-        run_ax = fig.add_axes([0.9, 0.35, 0.1, 0.05])
+        run_ax = fig.add_axes([0.9, 0.20, 0.1, 0.05])
         buttons["run_button"] = Button(run_ax, f"Run iteration {iter}")
         buttons["run_button"].on_clicked(update_granule_stimulation_and_plots)
 
     # Error Button
     if "error_button" not in buttons:
-        error_ax = fig.add_axes([0.9, 0.25, 0.1, 0.05])
+        error_ax = fig.add_axes([0.9, 0.15, 0.1, 0.05])
         buttons["error_button"] = Button(error_ax, "Error")
         buttons["error_button"].on_clicked(update_inferior_olive_stimulation_and_plots)
 
     # Network Button
     if "network_button" not in buttons:
-        network_ax = fig.add_axes([0.9, 0.15, 0.1, 0.05])
+        network_ax = fig.add_axes([0.9, 0.10, 0.1, 0.05])
         buttons["network_button"] = Button(network_ax, "Show network")
         buttons["network_button"].on_clicked(toggle_network_graph)
 
@@ -907,52 +959,55 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
     plt.draw()
     plt.pause(1)
 
-
-
-def main(control_HW=False):
+def main():
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np, fig, axes, iter
-    init_variables(control_HW)
+    init_variables()
     create_connections()
     [t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket] = recording()
     h.finitialize(-65)
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
-    
-    
 
-
-main(control_HW)
+main()
 
 
 
 try:
+    plot_iteration = 0
     while True:
         # Update the plot
-        update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
         time.sleep(0.1) # Delay between iterations
 
-        if control_HW:
-            # Pressure sensor
-            PS1_val = board.analog_read(PS1_pin)
-            PS2_val = board.analog_read(PS2_pin)
-            PS1_voltage = PS1_val * 5 / 1023
-            PS2_voltage = PS2_val * 5 / 1023
+        if plot_iteration == 0:
+            update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
+        
+        plot_iteration = (plot_iteration + 1) % 100 # update plot every 100 iterations (10s)
 
-            PushB5_val = board.digital_read(PushB5_pin)
-            if PushB5_val != PushB5_val_old:
-                if PushB5_val == 0:
-                    # Set servos to outlet position to let air out
-                    board.analog_write(Servo1_pin, Servo1_OUTLET)
-                    board.analog_write(Servo2_pin, Servo2_OUTLET)
-                    board.analog_write(Servo3_pin, Servo3_OUTLET)
-                    board.analog_write(Servo4_pin, Servo4_OUTLET)
-                    board.sleep(1)
-                    # Reset servo pins
-                    board.set_pin_mode(Servo1_pin, Constants.INPUT)
-                    board.set_pin_mode(Servo2_pin, Constants.INPUT)
-                    board.set_pin_mode(Servo3_pin, Constants.INPUT)
-                    board.set_pin_mode(Servo4_pin, Constants.INPUT)
-                PushB5_val_old = PushB5_val
+        if control_HW == 1:
+            try:
+                # Pressure sensor
+                PS1_val = board.analog_read(PS1_pin)
+                PS2_val = board.analog_read(PS2_pin)
+                PS1_voltage = PS1_val * 5 / 1023
+                PS2_voltage = PS2_val * 5 / 1023
+
+                PushB5_val = board.digital_read(PushB5_pin)
+                if PushB5_val != PushB5_val_old:
+                    if PushB5_val == 0:
+                        # Set servos to outlet position to let air out
+                        board.analog_write(Servo1_pin, Servo1_OUTLET)
+                        board.analog_write(Servo2_pin, Servo2_OUTLET)
+                        board.analog_write(Servo3_pin, Servo3_OUTLET)
+                        board.analog_write(Servo4_pin, Servo4_OUTLET)
+                        board.sleep(1)
+                        # Reset servo pins
+                        board.set_pin_mode(Servo1_pin, Constants.INPUT)
+                        board.set_pin_mode(Servo2_pin, Constants.INPUT)
+                        board.set_pin_mode(Servo3_pin, Constants.INPUT)
+                        board.set_pin_mode(Servo4_pin, Constants.INPUT)
+                    PushB5_val_old = PushB5_val
+            except NameError:
+                None
 
 except KeyboardInterrupt:
     print("Simulation stopped by user.")
