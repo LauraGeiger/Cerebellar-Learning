@@ -3,209 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from neuron import h, gui
 
-'''
-# Create multiple Purkinje Cells
-num_cells = 3
-cells = [h.Section(name=f'PC_{i}') for i in range(num_cells)]
-
-# Insert necessary channels in each Purkinje cell
-for cell in cells:
-    cell.L = cell.diam = 20  # Soma size
-    cell.insert('hh')  # Hodgkin-Huxley ion channels
-
-# Create Parallel Fiber input shared by all Purkinje cells
-pf_stim = h.NetStim()
-pf_stim.number = 1000  # Continuous firing
-pf_stim.start = 10    # Start time (ms)
-pf_stim.interval = 20  # 50 Hz firing (Parallel Fiber input)
-
-pf_syns = [h.ExpSyn(cell(0.5)) for cell in cells]
-# Set common synapse properties
-for pf_syn in pf_syns:
-    pf_syn.tau = 2  # Fast decay (AMPA-like)
-    pf_syn.e = 0    # Excitatory
-
-# NetCon for Parallel Fiber input (connected to all Purkinje cells)
-pf_ncs = [h.NetCon(pf_stim, pf_syn) for pf_syn in pf_syns]
-#pf_ncs = h.NetCon(pf_stim, pf_syns)
-
-def activate_GC_PC_synnapse(cell_ID):
-    for ID, nc in enumerate(pf_ncs):
-        if ID == cell_ID:
-            print(f"Activate cell {ID}")
-            nc.weight[0] = 0.005  # Small EPSP weight for active cell
-            #nc.active(1)
-        else:
-            print(f"Deactivate cell {ID}")
-            #nc.weight[0] = 0 #+ 0.001*ID # deactivate all others
-            nc.active(0)
-
-activate_GC_PC_synnapse(0)    # Activate Cell 1 and deactivate the others
-
-# Record membrane potential of all cells
-t_vec = h.Vector()
-v_vecs = [h.Vector() for _ in range(num_cells)]
-
-t_vec.record(h._ref_t)
-for i in range(num_cells):
-    v_vecs[i].record(cells[i](0.5)._ref_v)
-
-# Run Simulation
-h.tstop = 300  # Total simulation time (ms)
-h.run()
-
-# Plot Results
-plt.figure(figsize=(8,6))
-for i in range(num_cells):
-    plt.plot(t_vec, v_vecs[i], label=f"Purkinje Cell {i}")
-plt.xlabel("Time (ms)")
-plt.ylabel("Membrane Potential (mV)")
-plt.title("Selective Activation and Deactivation of Purkinje Cells")
-plt.legend()
-plt.show()
-'''
 
 '''
-from neuron import h
-import numpy as np
-import matplotlib.pyplot as plt
-
-h.load_file("stdrun.hoc")
-
-# Create a single-compartment neuron
-cell = h.Section(name="purkinje")
-cell.insert("hh")  # Insert Hodgkin-Huxley channels for spiking
-cell.L = cell.diam = 30  # Size
-
-# Create an IClamp to inject current
-iclamp = h.IClamp(cell(0.5))
-iclamp.dur = 1e9  # Long duration; controlled by Vector.play()
-
-# Define complex spike burst parameters
-burst_start = 10  # ms
-num_spikes = 5    # Number of spikes in burst
-burst_freq = 300  # Hz (High frequency burst)
-
-# Define pause parameters
-pause_duration = 100  # ms
-pause_current = -0.3  # nA (Hyperpolarizing pause)
-
-# Generate burst times
-burst_times = np.arange(burst_start, burst_start + (num_spikes * (1000 / burst_freq)), 1000 / burst_freq)
-
-# Generate current waveform (burst followed by pause)
-time_points = list(burst_times) + [burst_times[-1] + 1, burst_times[-1] + 1 + pause_duration]
-current_values = [1.0] * len(burst_times) + [pause_current, 0]  # Spike burst (1 nA), then pause (-0.3 nA)
-
-# Convert to NEURON Vectors
-t_vec = h.Vector(time_points)
-i_vec = h.Vector(current_values)
-
-# Apply waveform to IClamp
-i_vec.play(iclamp._ref_amp, t_vec, True)
-
-# Run simulation
-t = h.Vector()
-v = h.Vector()
-t.record(h._ref_t)
-v.record(cell(0.5)._ref_v)
-
-h.finitialize(-65)
-h.continuerun(200)
-
-# Plot results
-plt.figure(figsize=(8,4))
-plt.plot(t, v, label="Purkinje Cell Voltage")
-plt.xlabel("Time (ms)")
-plt.ylabel("Voltage (mV)")
-plt.title("Complex Spike and Pause")
-plt.legend()
-plt.show()
-'''
-
-'''
-from neuron import h
-import numpy as np
-import matplotlib.pyplot as plt
-
-h.load_file("stdrun.hoc")
-
-# Create granule and Purkinje cells
-granule = h.Section(name="granule")
-granule.insert("hh")  # Hodgkin-Huxley spiking model
-granule.L = granule.diam = 10  # Small cell
-
-purkinje = h.Section(name="purkinje")
-purkinje.insert("hh")  # Purkinje cell also has HH model
-purkinje.L = purkinje.diam = 30  # Larger cell
-
-# Create synapse from granule → Purkinje
-syn = h.Exp2Syn(purkinje(0.5))
-syn.tau1 = 1  # Synaptic rise time
-syn.tau2 = 5  # Synaptic decay time
-syn.e = 0  # Excitatory
-
-# Create NetCon to link granule APs to the synapse
-nc = h.NetCon(granule(0.5)._ref_v, syn, sec=granule)
-nc.threshold = -20  # Spike detection threshold
-nc.weight[0] = 0.01  # Synaptic weight
-nc.delay = 3  # Transmission delay
-
-# Create an IClamp for complex spike injection into the granule cell
-iclamp = h.IClamp(granule(0.5))
-iclamp.dur = 1e9  # Long duration; controlled by Vector.play()
-
-# Define complex spike burst parameters
-burst_start = 10  # Start time (ms)
-num_spikes = 5    # Number of spikes in burst
-burst_freq = 300  # Hz (High frequency burst)
-
-# Define pause parameters
-pause_duration = 100  # ms
-pause_current = -0.3  # nA (Hyperpolarizing pause)
-
-# Generate burst times
-burst_times = np.arange(burst_start, burst_start + (num_spikes * (1000 / burst_freq)), 1000 / burst_freq)
-
-# Generate current waveform (burst followed by pause)
-time_points = list(burst_times) + [burst_times[-1] + 1, burst_times[-1] + 1 + pause_duration]
-current_values = [1.0] * len(burst_times) + [pause_current, 0]  # Burst (1 nA), then pause (-0.3 nA)
-
-# Convert to NEURON Vectors
-t_vec = h.Vector(time_points)
-i_vec = h.Vector(current_values)
-
-# Apply waveform to IClamp
-i_vec.play(iclamp._ref_amp, t_vec, True)
-
-# Record simulation data
-t = h.Vector()
-v_granule = h.Vector()
-v_purkinje = h.Vector()
-
-t.record(h._ref_t)
-v_granule.record(granule(0.5)._ref_v)
-v_purkinje.record(purkinje(0.5)._ref_v)
-
-# Run simulation
-h.finitialize(-65)
-h.continuerun(200)
-
-# Plot results
-plt.figure(figsize=(8, 4))
-plt.plot(t, v_granule, label="Granule Cell Voltage", linestyle="dashed")
-plt.plot(t, v_purkinje, label="Purkinje Cell Voltage", color="red")
-plt.xlabel("Time (ms)")
-plt.ylabel("Voltage (mV)")
-plt.title("Purkinje Cell Response to Granule Cell Complex Spike")
-plt.legend()
-plt.show()
-'''
-
-#'''
-from neuron import h
-import numpy as np
-import matplotlib.pyplot as plt
 
 h.load_file("stdrun.hoc")
 
@@ -403,3 +202,130 @@ plt.title("Purkinje Cell Response to Granule & Inferior Olive Inputs")
 plt.legend()
 plt.show()
 '''
+from neuron import h, gui
+import numpy as np
+import matplotlib.pyplot as plt
+
+# === Create Cells ===
+granule = h.Section(name="granule")  # Granule cell
+granule.L = granule.diam = 10
+granule.insert("hh")  # Active conductances
+
+purkinje_cells = [h.Section(name=f"pc_{i}") for i in range(5)]  # 5 Purkinje cells
+for pc in purkinje_cells:
+    pc.L = pc.diam = 30
+    pc.insert("hh")  # Hodgkin-Huxley for spiking
+
+basket = h.Section(name="basket")  # Basket cell
+basket.L = basket.diam = 10
+basket.insert("hh")  # Active conductances
+
+# === Excitatory Synapses (Granule → Purkinje) ===
+exc_syns = [h.ExpSyn(pc(0.5)) for pc in purkinje_cells]
+for syn in exc_syns:
+    syn.tau = 5  # Synaptic decay time
+    syn.e = 0    # Excitatory reversal potential
+
+# === Inhibitory Synapses (Basket → 4 Purkinje) ===
+inh_syns = [h.ExpSyn(purkinje_cells[i](0.5)) for i in range(4)]  # First 4 PCs inhibited
+for syn in inh_syns:
+    syn.tau = 5
+    syn.e = -70  # Inhibitory reversal potential (GABA)
+
+# === Direct Current Injection for Spiking ===
+# Granule Cell (50 Hz spiking)
+granule_stim = h.IClamp(granule(0.5))
+granule_stim.delay = 10  # Start stimulation at 10 ms
+granule_stim.dur = 1   # Duration of 200 ms
+granule_stim.amp = 0.5   # Adjust to trigger 50 Hz spiking
+
+# Basket Cell (Inhibition)
+basket_stim = h.IClamp(basket(0.5))
+basket_stim.delay = 10   # Start inhibition later
+basket_stim.dur = 1    # Continuous inhibition
+basket_stim.amp = 0.5    # Adjust for regular spiking
+
+# === Connect Synapses ===
+granule_netcons = [h.NetCon(granule(0.5)._ref_v, syn, sec=granule) for syn in exc_syns]
+for nc in granule_netcons:
+    nc.threshold = 10  # Spike detection threshold
+    nc.weight[0] = 0.002  # Excitatory weight
+
+basket_netcons = [h.NetCon(basket(0.5)._ref_v, syn, sec=basket) for syn in inh_syns]
+for nc in basket_netcons:
+    nc.threshold = 10  # Detect basket cell spikes
+    nc.weight[0] = 0.05  # Strong inhibition
+
+# === Recording Variables ===
+t = h.Vector()  # Time
+t.record(h._ref_t)
+
+granule_spike_times = []  # Raster plot data
+basket_spike_times = []
+
+# Record Purkinje voltages
+pc_voltages = [h.Vector() for _ in purkinje_cells]
+for i, v in enumerate(pc_voltages):
+    v.record(purkinje_cells[i](0.5)._ref_v)
+
+# Record inhibitory synaptic currents
+inh_currents = [h.Vector() for syn in inh_syns]
+for i, v in enumerate(inh_currents):
+    v.record(inh_syns[i]._ref_i)
+
+# Function to record spike times
+def record_granule_spikes():
+    granule_spike_times.append(h.t)
+
+def record_basket_spikes():
+    basket_spike_times.append(h.t)
+
+# Spike detectors
+granule_spike_detector = h.NetCon(granule(0.5)._ref_v, None, sec=granule)
+granule_spike_detector.threshold = -40
+granule_spike_detector.record(record_granule_spikes)
+
+basket_spike_detector = h.NetCon(basket(0.5)._ref_v, None, sec=basket)
+basket_spike_detector.threshold = -40
+basket_spike_detector.record(record_basket_spikes)
+
+# === Run Simulation ===
+h.finitialize(-65)
+h.continuerun(200)
+
+# Convert recorded spike times to NumPy arrays
+granule_spike_times = np.array(granule_spike_times)
+basket_spike_times = np.array(basket_spike_times)
+
+# === Plot Results ===
+fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+
+# 1. Purkinje Membrane Potentials
+for i in range(5):
+    axs[0].plot(t, pc_voltages[i], label=f"PC {i+1}")
+axs[0].set_ylabel("Voltage (mV)")
+axs[0].legend()
+axs[0].set_title("Purkinje Cell Membrane Potentials")
+
+# 2. Inhibitory Synaptic Currents
+for i in range(4):
+    axs[1].plot(t, inh_currents[i], label=f"PC {i+1} Inhibitory Input")
+axs[1].set_ylabel("Current (nA)")
+axs[1].legend()
+axs[1].set_title("Inhibitory Synaptic Inputs (Basket → PC)")
+
+# 3. Raster Plot of Granule Spikes
+axs[2].scatter(granule_spike_times, np.ones_like(granule_spike_times), color="b", marker="|", s=100, label="Granule Spikes")
+axs[2].set_ylabel("Granule")
+axs[2].legend()
+axs[2].set_title("Granule Cell Raster Plot")
+
+# 4. Raster Plot of Basket Spikes
+axs[3].scatter(basket_spike_times, np.ones_like(basket_spike_times), color="r", marker="|", s=100, label="Basket Spikes")
+axs[3].set_xlabel("Time (ms)")
+axs[3].set_ylabel("Basket")
+axs[3].legend()
+axs[3].set_title("Basket Cell Raster Plot")
+
+plt.tight_layout()
+plt.show()
