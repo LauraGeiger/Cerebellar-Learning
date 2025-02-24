@@ -69,7 +69,7 @@ def init_variables():
     
     # --- Plotting ---
     plt.ion()  # Turn on interactive mode
-    fig = plt.figure(layout="constrained")
+    fig = plt.figure(layout="constrained", figsize=[11,7])
     gs, ax_network, ax_plots, ax_buttons = None, None, None, None
     animations = []
     purkinje_drawing = []
@@ -147,9 +147,9 @@ def init_HW():
     PS2_pin = 3
 
     # Servos
-    Servo1_pin = 2 # connect to M7 of Exoskeleton (Extension)
+    Servo1_pin = 2 # connect to air tube 1 of Exoskeleton (Flexion)
     Servo2_pin = 3
-    Servo3_pin = 4 # connect to M8 of Exoskeleton (Flexion)
+    Servo3_pin = 4 # connect to air tube 2 of Exoskeleton (Extension)
     Servo4_pin = 5
     # Define angles for servo motors
     Servo1_OUTLET = 110
@@ -199,7 +199,7 @@ def init_HW():
     board.analog_write(Servo2_pin, Servo2_OUTLET)
     board.analog_write(Servo3_pin, Servo3_OUTLET)
     board.analog_write(Servo4_pin, Servo4_OUTLET)
-    board.sleep(1)
+    board.sleep(2)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
     board.set_pin_mode(Servo2_pin, Constants.INPUT)
@@ -301,34 +301,29 @@ def activate_highest_weight_PC(granule_gid):
 def release_actuator():
     # Config servo pins
     board.servo_config(Servo1_pin)
-    board.servo_config(Servo2_pin)
     board.servo_config(Servo3_pin) 
-    board.servo_config(Servo4_pin)
-    board.sleep(1)
+    #board.sleep(1)
     # Set servos to outlet position to let air out
-    board.analog_write(Servo1_pin, Servo1_OUTLET)
-    board.analog_write(Servo2_pin, Servo2_OUTLET)
-    board.analog_write(Servo3_pin, Servo3_OUTLET)
-    board.analog_write(Servo4_pin, Servo4_OUTLET)
-    board.sleep(2)
+    board.analog_write(Servo1_pin, Servo1_OUTLET) # First release flexion
+    board.sleep(1)
+    board.analog_write(Servo3_pin, Servo3_OUTLET) # Then release extension
+    board.sleep(1)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
-    board.set_pin_mode(Servo2_pin, Constants.INPUT)
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
-    board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def control_actuator(voltage):
-    board.servo_config(Servo1_pin) # Extension 
-    board.servo_config(Servo3_pin) # Flexion
-    #board.analog_write(Servo1_pin, Servo1_INLET)
+    board.servo_config(Servo1_pin) # Flexion 
+    board.servo_config(Servo3_pin) # Extension
+    board.analog_write(Servo1_pin, Servo1_INLET)
     board.analog_write(Servo3_pin, Servo3_INLET)
     board.sleep(2)
     if voltage is not None:
         board.analog_write(COMP_pin, int(voltage * 255 / 5))
-    board.sleep(0.5)
-    #board.analog_write(Servo1_pin, Servo1_HOLD) # Stop extension 
-    board.sleep(2.5)
-    board.analog_write(Servo3_pin, Servo3_HOLD) # Stop flexion
+    board.sleep(1.0)
+    board.analog_write(Servo3_pin, Servo3_HOLD) # Stop extension
+    board.sleep(1.0)
+    board.analog_write(Servo1_pin, Servo1_HOLD) # Stop flexion  
     board.analog_write(COMP_pin, 0)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
@@ -367,15 +362,19 @@ def update_granule_stimulation_and_plots(event=None):
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, 
                                       fargs=(spike, 0, p_id, g_id))
         animations.append(ani)
+        plt.pause(4)
 
     stimulate_granule_cell()
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
     buttons["run_button"].label.set_text(f"Run iteration {iter}")
-    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
 
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
+
+    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
+
+    
 
     # --- Control of actuator ---
     if control_HW:
@@ -437,13 +436,15 @@ def update_inferior_olive_stimulation_and_plots(event=None):
         spike, = ax_network.plot([], [], 'mo', markersize=15)
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 1, p_id))
         animations.append(ani)
+        plt.pause(4)
 
     stimulate_inferior_olive_cell()
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, error=True)
-    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
     
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
+    
+    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np) 
 
 # Update state variable
 def update_state(event):
@@ -451,6 +452,9 @@ def update_state(event):
     for i in range(3):
         if buttons["state_button"].value_selected == f"State {i+1}":
             state = i
+
+    plt.draw()
+    plt.pause(1)
 
 # Toggle between simulation of controlling HW
 def toggle_control(event=None):
@@ -464,6 +468,9 @@ def toggle_control(event=None):
     # Initialize HW
     if control_HW == 1:
         init_HW()
+
+    plt.draw()
+    plt.pause(1)
 
 # Toggle between manual and automatic mode
 def toggle_mode(event=None):
@@ -501,6 +508,9 @@ def toggle_network_graph(event=None):
         buttons["network_button"].label.set_text("Hide network")
         show_network_graph()
         gs.set_height_ratios([1.5, 1, 1])
+    
+    plt.draw()
+    plt.pause(1)
 
 def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=2):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
@@ -567,7 +577,7 @@ def update_weights_in_network():
     if max_w > min_w:
         for g in range(num_granule):
             for p in range(num_purkinje):
-                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) 
+                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) / 4
     else:
         triangle_widths.fill(0.5)
 
@@ -584,44 +594,12 @@ def update_weights_in_network():
                     (x, y)  # Bottom center
                 ]
                 triangle.set_xy(new_xy)  # Update vertices
-
-
-def old_update_weights_in_network():
-    global ax_network, purkinje_drawing
-
-    height = 1
-    width = 0.5
-
-    purkinje_x = np.linspace(-1, 2, num_purkinje)
-    purkinje_y = 0
-
-    purkinje_colors = ["C0", "C1", "C2", "C3", "C4"]
-
-    # --- Define and Normalize Line Widths ---
-    line_widths = np.empty((num_granule, num_purkinje))
-    min_w, max_w = min_weight, max_weight
-    if max_w > min_w:  # Avoid division by zero
-        for g in range(num_granule):
-            for p in range(num_purkinje):
-                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w) 
-    else:
-        for g in range(num_granule):
-            for p in range(num_purkinje):
-                line_widths[g,p] = 2  # Default width if all weights are the same
-
-    # Remove Purkinje cells
-    for purkinje in purkinje_drawing:
-        for drawing in purkinje:
-            drawing.remove()
-    purkinje_drawing = []
-    # Draw Purkinje cells with updated weights
-    for i, x in enumerate(purkinje_x):
-        drawing = draw_purkinje(ax_network, x, purkinje_y, width=width, height=height, color=purkinje_colors[i], line_width=line_widths[:, i])
-        purkinje_drawing.append(drawing)
+    
+    plt.draw()
+    plt.pause(1)
 
 def show_network_graph():
     global ax_network, purkinje_drawing
-    #ax = fig.add_subplot(gs[0, :]) # reserve first row for network graph
 
     height = 1
     width = 0.5
@@ -682,6 +660,9 @@ def show_network_graph():
     ax_network.text(olive_x + 0.2, olive_y, "Inferior Olive (IO)", fontsize=12, color="black")
     ax_network.text(purkinje_x[-1] + 0.2, olive_y + abs(purkinje_y - olive_y) / 2, "Climbing Fibers (CF)", fontsize=12, color="black")
     ax_network.text(basket_x + 0.2, basket_y, "Basket Cell (BC)", fontsize=12, color="C8")
+
+    plt.draw()
+    plt.pause(1)
 
 def update_animation(frame, spike, spike_type=0, p_id=0, g_id=0): # spike_type = 0 (simple) or 1 (complex)
 
@@ -868,8 +849,6 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
             for col in range(num_granule):
                 ax_plots[row][col].cla()
 
-    
-
     # Share y-axis within each row
     for row in range(2):
         for col in range(num_granule):  # Start from second column
@@ -911,7 +890,6 @@ def update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOl
     # Label y-axes only on the first column
     ax_plots[0][0].set_ylabel("Membrane Voltage (mV)")
     ax_plots[1][0].set_ylabel("Synaptic Weight")
-
 
     # --- Buttons ---
     # Automatic Button
@@ -967,21 +945,21 @@ def main():
     h.finitialize(-65)
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
+    update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
+    
 
 main()
 
 
 
 try:
-    plot_iteration = 0
     while True:
-        # Update the plot
         time.sleep(0.1) # Delay between iterations
 
-        if plot_iteration == 0:
-            update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
-        
-        plot_iteration = (plot_iteration + 1) % 100 # update plot every 100 iterations (10s)
+        # Update the plot
+        plt.draw()
+        plt.pause(1)
+
 
         if control_HW == 1:
             try:
@@ -991,21 +969,6 @@ try:
                 PS1_voltage = PS1_val * 5 / 1023
                 PS2_voltage = PS2_val * 5 / 1023
 
-                PushB5_val = board.digital_read(PushB5_pin)
-                if PushB5_val != PushB5_val_old:
-                    if PushB5_val == 0:
-                        # Set servos to outlet position to let air out
-                        board.analog_write(Servo1_pin, Servo1_OUTLET)
-                        board.analog_write(Servo2_pin, Servo2_OUTLET)
-                        board.analog_write(Servo3_pin, Servo3_OUTLET)
-                        board.analog_write(Servo4_pin, Servo4_OUTLET)
-                        board.sleep(1)
-                        # Reset servo pins
-                        board.set_pin_mode(Servo1_pin, Constants.INPUT)
-                        board.set_pin_mode(Servo2_pin, Constants.INPUT)
-                        board.set_pin_mode(Servo3_pin, Constants.INPUT)
-                        board.set_pin_mode(Servo4_pin, Constants.INPUT)
-                    PushB5_val_old = PushB5_val
             except NameError:
                 None
 
