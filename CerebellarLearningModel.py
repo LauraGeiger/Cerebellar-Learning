@@ -974,7 +974,8 @@ try:
 
 except KeyboardInterrupt:
     print("Simulation stopped by user.")
-    release_actuator()
+    if control_HW == 1:
+        release_actuator()
     plt.show()
 
 
