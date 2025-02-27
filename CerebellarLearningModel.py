@@ -6,7 +6,9 @@ import matplotlib.animation as animation
 from matplotlib.widgets import Button
 from matplotlib.widgets import RadioButtons
 from matplotlib.gridspec import GridSpec
-import networkx as nx
+#import networkx as nx
+import threading
+import asyncio
 import time
 
 from pymata_aio.pymata3 import PyMata3
@@ -51,6 +53,7 @@ def init_variables():
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
     global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, max_weight, min_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
     global tau_plus, tau_minus, A_plus, A_minus, dt_LTP, dt_LTD
+    global board
 
     # --- GUI and Control ---
     iter = 0
@@ -114,18 +117,20 @@ def init_variables():
     dt_LTP = 10  # Time window for LTP (ms)
     dt_LTD = -10  # Time window for LTD (ms)
 
+    # --- HW Paramaters ---
+    board = None    
+
 def init_HW():
-    global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
+    global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, PS1_voltage, PS2_voltage, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
     global Servo1_OUTLET, Servo1_INLET, Servo1_HOLD, Servo2_OUTLET, Servo2_INLET, Servo2_HOLD, Servo3_OUTLET, Servo3_INLET, Servo3_HOLD, Servo4_OUTLET, Servo4_INLET, Servo4_HOLD
-    global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old
+    global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old 
     #########################################
     # Upload StandardFirmata.ino to Arduino #
     #########################################
-    
+
     # Open serial connection to Arduino
-    windows_port = 'COM8'
-    linux_port = '/dev/ttyUSB0'
-    board = PyMata3(com_port=windows_port)
+    if board == None:
+        board = PyMata3() # detects port automatically
 
     # --- Pin Declaration --- 
     # Push Buttons
@@ -145,12 +150,14 @@ def init_HW():
     # Pressure sensors
     PS1_pin = 2
     PS2_pin = 3
+    PS1_voltage = None
+    PS2_voltage = None
 
     # Servos
-    Servo1_pin = 2 # connect to air tube 1 of Exoskeleton (Flexion)
-    Servo2_pin = 3
-    Servo3_pin = 4 # connect to air tube 2 of Exoskeleton (Extension)
-    Servo4_pin = 5
+    Servo1_pin = 2 # connect to Flexion of Thumb
+    Servo2_pin = 3 # connect to Extension of Thumb
+    Servo3_pin = 4 # connect to Flexion of Index Finger
+    Servo4_pin = 5 # connect to Extension of Index Finger
     # Define angles for servo motors
     Servo1_OUTLET = 110
     Servo1_INLET = 20
@@ -301,33 +308,49 @@ def activate_highest_weight_PC(granule_gid):
 def release_actuator():
     # Config servo pins
     board.servo_config(Servo1_pin)
-    board.servo_config(Servo3_pin) 
+    board.servo_config(Servo2_pin) 
+    board.servo_config(Servo3_pin)
+    board.servo_config(Servo4_pin) 
     #board.sleep(1)
     # Set servos to outlet position to let air out
     board.analog_write(Servo1_pin, Servo1_OUTLET) # First release flexion
+    board.analog_write(Servo3_pin, Servo3_OUTLET) # First release flexion
     board.sleep(1)
-    board.analog_write(Servo3_pin, Servo3_OUTLET) # Then release extension
+    board.analog_write(Servo2_pin, Servo2_OUTLET) # Then release extension
+    board.analog_write(Servo4_pin, Servo4_OUTLET) # Then release extension
     board.sleep(1)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo2_pin, Constants.INPUT)
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def control_actuator(voltage):
-    board.servo_config(Servo1_pin) # Flexion 
-    board.servo_config(Servo3_pin) # Extension
+
+    board.servo_config(Servo1_pin) # Flexion - Thumb
+    board.servo_config(Servo2_pin) # Extension - Thumb
+    board.servo_config(Servo3_pin) # Flexion - Index finger
+    board.servo_config(Servo4_pin) # Extension - Index finger
     board.analog_write(Servo1_pin, Servo1_INLET)
+    board.analog_write(Servo2_pin, Servo2_INLET)
     board.analog_write(Servo3_pin, Servo3_INLET)
+    board.analog_write(Servo4_pin, Servo4_INLET)
     board.sleep(2)
     if voltage is not None:
         board.analog_write(COMP_pin, int(voltage * 255 / 5))
     board.sleep(1.0)
-    board.analog_write(Servo3_pin, Servo3_HOLD) # Stop extension
+    board.analog_write(Servo2_pin, Servo2_HOLD) # First stop extension - Thumb
     board.sleep(1.0)
-    board.analog_write(Servo1_pin, Servo1_HOLD) # Stop flexion  
+    board.analog_write(Servo4_pin, Servo4_HOLD) # First stop extension - Index finger
+    board.analog_write(Servo1_pin, Servo1_HOLD) # Then stop flexion - Thumb
+    board.sleep(1.5)
+    board.analog_write(Servo3_pin, Servo3_HOLD) # Then stop flexion - Index finger
     board.analog_write(COMP_pin, 0)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo2_pin, Constants.INPUT)
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def stimulate_granule_cell():
     # --- Stimulate Granule Cells Based on State ---
@@ -383,13 +406,15 @@ def update_granule_stimulation_and_plots(event=None):
         print("Releasing air...")
         release_actuator()
         board.sleep(1)
-        print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
+        if PS1_voltage != None and PS2_voltage != None:
+            print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
 
         
         print(f"Controlling actuator with {actuator_voltage}V (PC{p_id+1})")
         control_actuator(actuator_voltage)
         board.sleep(1)
-        print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
+        if PS1_voltage != None and PS2_voltage != None:
+            print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell():
@@ -464,10 +489,13 @@ def toggle_control(event=None):
 
     # Deactivate automatic mode when controlling HW
     buttons["automatic_button"].ax.set_visible(True if control_HW == 0 else False)
+    time.sleep(0.2)
  
     # Initialize HW
     if control_HW == 1:
         init_HW()
+    else:
+        release_actuator()
 
     plt.draw()
     plt.pause(1)
@@ -946,12 +974,9 @@ def main():
     [t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np] = run_simulation(granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes)
     iter += 1
     update_spike_and_weight_plot(t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np)
-    
 
 main()
-
-
-
+    
 try:
     while True:
         time.sleep(0.1) # Delay between iterations
@@ -959,7 +984,6 @@ try:
         # Update the plot
         plt.draw()
         plt.pause(1)
-
 
         if control_HW == 1:
             try:
@@ -969,15 +993,14 @@ try:
                 PS1_voltage = PS1_val * 5 / 1023
                 PS2_voltage = PS2_val * 5 / 1023
 
-            except NameError:
-                None
+            except Exception as e:
+                print(f"Not able to read pressure sensor values: {e}")
 
 except KeyboardInterrupt:
     print("Simulation stopped by user.")
     if control_HW == 1:
         release_actuator()
-    plt.show()
-
+    #plt.show()
 
 
 
