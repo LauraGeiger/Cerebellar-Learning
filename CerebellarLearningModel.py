@@ -44,14 +44,27 @@ class BasketCell:
         self.soma.insert('hh')
 
 def init_variables(reset_all=True):
-    global iter, buttons, state, mode, control_HW, control_time, mode_dict, hw_dict, control_dict, environment
     global fig, gs, ax_network, ax_plots, ax_buttons, animations, purkinje_drawing
+    global iter, buttons, state, mode, control_HW, control_time, mode_dict, hw_dict, control_dict, environment
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
     global num_granule, num_purkinje, num_inferior_olive, num_basket, granule_cells, purkinje_cells, inferior_olive_cells, basket_cells
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
     global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, max_weight, min_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
     global tau_plus, tau_minus, A_plus, A_minus, dt_LTP, dt_LTD
     global board, pc_air_pressure_mapping, pc_inflation_time_mapping
+
+    # --- Plotting ---
+    try: # Reset figure
+        fig.clf()
+        #plt.close(fig)
+        #fig = plt.figure(layout="constrained", figsize=[11,7])
+    except NameError: # Create figure
+        plt.ion()  # Turn on interactive mode
+        fig = plt.figure(layout="constrained", figsize=[11,7])
+    
+    gs, ax_network, ax_plots, ax_buttons = None, None, None, None
+    animations = []
+    purkinje_drawing = []
 
     # --- GUI and Control ---
     iter = 0
@@ -65,16 +78,7 @@ def init_variables(reset_all=True):
     control_dict = {0:"Air pressure", 1:"Inflation time"}
     environment = {0 : 0, 1 : 2, 2 : 4} # "state : PC_ID" --> environment maps object_ID/state to the desired Purkinje Cell
     
-    # --- Plotting ---
-    try: # Reset figure
-        fig.clf()
-    except NameError: # Create figure
-        plt.ion()  # Turn on interactive mode
-        fig = plt.figure(layout="constrained", figsize=[11,7])
     
-    gs, ax_network, ax_plots, ax_buttons = None, None, None, None
-    animations = []
-    purkinje_drawing = []
 
     # --- Spikes and Voltages for Plotting ---
     t = h.Vector()  # First time initialization
@@ -244,10 +248,17 @@ def create_connections():
             nc.delay = 1
             pf_ncs[granule.gid][purkinje.gid] = nc
             weights[(granule.gid, purkinje.gid)] = nc.weight[0]
-            
+    
     # Inferior Olive → Purkinje Connections (excitatory)
+    group_size = num_purkinje // num_inferior_olive  # Size of each IO’s Purkinje group
+    remainder = num_purkinje % num_inferior_olive  # Handle remainder case
+
     for inferior_olive in inferior_olive_cells:
-        for purkinje in purkinje_cells:
+        start_idx = inferior_olive.gid * group_size + min(inferior_olive.gid, remainder)  
+        end_idx = start_idx + group_size + (1 if inferior_olive.gid < remainder else 0)  
+
+        for purkinje_gid in range(start_idx, end_idx):
+            purkinje = purkinje_cells[purkinje_gid]
             syn = h.Exp2Syn(purkinje.soma(0.5))
             syn.e = 0  # Excitatory
             syn.tau1 = 5 # Synaptic rise time
@@ -270,226 +281,6 @@ def create_connections():
             nc.weight[0] = basket_initial_weight
             nc.delay = 1
             inh_ncs[basket.gid][purkinje.gid] = nc
-
-def update_granule_cells(new_num_granule):
-    global num_granule, granule_cells, pf_syns, pf_ncs
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
-
-    old_num_granule = num_granule
-    num_granule = new_num_granule
-
-    # Clear old synapses and netcons
-    pf_syns = [[] for _ in range(num_granule)]
-    pf_ncs = [[] for _ in range(num_granule)]
-
-    # Resize granule_cells list
-    if new_num_granule > old_num_granule:
-        for i in range(old_num_granule, new_num_granule):
-            granule_cells.append(GranuleCell(i))
-    granule_cells = granule_cells[:new_num_granule]  # Trim if reduced
-
-    # Reassign parallel fiber (PF) synapses to Purkinje cells
-    for granule in granule_cells:
-        for purkinje in purkinje_cells:
-            syn = h.Exp2Syn(purkinje.soma(0.5))
-            syn.e = 0  # Excitatory
-            syn.tau1 = 1
-            syn.tau2 = 5
-            pf_syns[granule.gid].append(syn)
-
-            nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
-            nc.weight[0] = pf_initial_weight + np.random.uniform(0, 0.001)
-            nc.delay = 1
-            pf_ncs[granule.gid].append(nc)
-
-    print(f"Updated number of Granule cells: {num_granule}")
-
-    # Update network graph
-    if buttons["network_button"].label.get_text() == "Hide network": 
-        ax_network.cla()  # Clear network plot
-        ax_network.axis("off")
-        show_network_graph()
-
-    #recording()
-
-def update_basket_cells(new_num_basket):
-    global num_basket, basket_cells, inh_syns, inh_ncs
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
-
-    old_num_basket = num_basket
-    num_basket = new_num_basket
-
-    # Clear old synapses and netcons
-    inh_syns = [[] for _ in range(num_basket)]
-    inh_ncs = [[] for _ in range(num_basket)]
-
-    # Resize basket_cells list
-    if new_num_basket > old_num_basket:
-        for i in range(old_num_basket, new_num_basket):
-            basket_cells.append(BasketCell(i))
-    basket_cells = basket_cells[:new_num_basket]  # Trim if reduced
-
-    # Reassign inhibitory (INH) synapses to Purkinje cells
-    for basket in basket_cells:
-        for purkinje in purkinje_cells:
-            syn = h.Exp2Syn(purkinje.soma(0.5))
-            syn.e = -70  # Inhibitory
-            syn.tau1 = 1
-            syn.tau2 = 5
-            inh_syns[basket.gid].append(syn)
-
-            nc = h.NetCon(basket.soma(0.5)._ref_v, syn, sec=basket.soma)
-            nc.weight[0] = basket_initial_weight
-            nc.delay = 1
-            inh_ncs[basket.gid].append(nc)
-
-    print(f"Updated number of Basket cells: {num_basket}")
-
-    # Update network graph
-    if buttons["network_button"].label.get_text() == "Hide network": 
-        ax_network.cla()  # Clear network plot
-        ax_network.axis("off")
-        show_network_graph()
-
-    #recording()
-
-def update_purkinje_cells(new_num_purkinje):
-    global num_purkinje, purkinje_cells, pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs, weights, weights_over_time, processed_pairs
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
-
-    old_num_purkinje = num_purkinje
-    num_purkinje = new_num_purkinje
-
-    # Handle increasing or decreasing Purkinje cell count
-    if new_num_purkinje > old_num_purkinje:
-        for i in range(old_num_purkinje, new_num_purkinje):
-            purkinje_cells.append(PurkinjeCell(i))
-
-            # Add new Purkinje connections and track weights
-            for granule in granule_cells:
-                weights[(granule.gid, i)] = pf_initial_weight + np.random.uniform(0,0.001)
-                weights_over_time[(granule.gid, i)] = []  # Initialize weight tracking
-                processed_pairs[(granule.gid, i)] = set()
-
-                syn = h.Exp2Syn(purkinje_cells[i].soma(0.5))
-                syn.e = 0
-                syn.tau1 = 1
-                syn.tau2 = 5
-                pf_syns[granule.gid].append(syn)
-
-                nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
-                nc.weight[0] = pf_initial_weight + np.random.uniform(0, 0.001)
-                nc.delay = 1
-                pf_ncs[granule.gid].append(nc)
-
-            for inferior_olive in inferior_olive_cells:
-                syn = h.Exp2Syn(purkinje_cells[i].soma(0.5))
-                syn.e = 0
-                syn.tau1 = 5
-                syn.tau2 = 25
-                cf_syns[inferior_olive.gid].append(syn)
-
-                nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
-                nc.weight[0] = cf_initial_weight
-                nc.delay = 1
-                cf_ncs[inferior_olive.gid].append(nc)
-
-            for basket in basket_cells:
-                syn = h.Exp2Syn(purkinje_cells[i].soma(0.5))
-                syn.e = -70
-                syn.tau1 = 1
-                syn.tau2 = 5
-                inh_syns[basket.gid].append(syn)
-
-                nc = h.NetCon(basket.soma(0.5)._ref_v, syn, sec=basket.soma)
-                nc.weight[0] = basket_initial_weight
-                nc.delay = 1
-                inh_ncs[basket.gid].append(nc)
-
-    else:
-        # Remove excess Purkinje cells
-        purkinje_cells = purkinje_cells[:new_num_purkinje]
-
-        # Remove weights, weights_over_time, and processed_pairs for deleted Purkinje cells
-        weights = { (pre_gid, post_gid): w for (pre_gid, post_gid), w in weights.items() if post_gid < new_num_purkinje }
-        weights_over_time = { (pre_gid, post_gid): w for (pre_gid, post_gid), w in weights_over_time.items() if post_gid < new_num_purkinje }
-        processed_pairs = { (pre_gid, post_gid): p for (pre_gid, post_gid), p in processed_pairs.items() if post_gid < new_num_purkinje }
-
-        # Remove synapse and NetCon references
-        for i in range(len(pf_syns)):
-            pf_syns[i] = pf_syns[i][:new_num_purkinje]
-            pf_ncs[i] = pf_ncs[i][:new_num_purkinje]
-        for i in range(len(cf_syns)):
-            cf_syns[i] = cf_syns[i][:new_num_purkinje]
-            cf_ncs[i] = cf_ncs[i][:new_num_purkinje]
-        for i in range(len(inh_syns)):
-            inh_syns[i] = inh_syns[i][:new_num_purkinje]
-            inh_ncs[i] = inh_ncs[i][:new_num_purkinje]
-
-        # Remove weight tracking for deleted Purkinje cells
-        weights_over_time = { (pre_gid, post_gid): w for (pre_gid, post_gid), w in weights_over_time.items() if post_gid < new_num_purkinje }
-
-    print(f"Updated number of Purkinje cells: {num_purkinje}")
-
-    # Update network graph
-    if buttons["network_button"].label.get_text() == "Hide network": 
-        ax_network.cla()  # Clear network plot
-        ax_network.axis("off")
-        show_network_graph()
-
-    #recording()
-    
-
-def update_inferior_olive_cells(new_num_inferior_olive):
-    global num_inferior_olive, inferior_olive_cells, cf_syns, cf_ncs
-    global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
-
-    old_num_inferior_olive = num_inferior_olive
-    num_inferior_olive = new_num_inferior_olive
-
-    group_size = num_purkinje // num_inferior_olive  # Size of each IO’s Purkinje group
-    remainder = num_purkinje % num_inferior_olive  # Handle remainder case
-
-    # Clear existing connections before reassignment
-    cf_syns = [[None] * num_purkinje for _ in range(num_inferior_olive)]
-    cf_ncs = [[None] * num_purkinje for _ in range(num_inferior_olive)]
-
-     # Add new IO cells if needed
-    if new_num_inferior_olive > old_num_inferior_olive:
-        for i in range(old_num_inferior_olive, new_num_inferior_olive):
-            inferior_olive_cells.append(InferiorOliveCell(i))
-
-    # Trim the list if IO cells were reduced
-    inferior_olive_cells = inferior_olive_cells[:new_num_inferior_olive]
-
-    # Reassign Purkinje connections
-    for io_index in range(num_inferior_olive):
-        start_idx = io_index * group_size + min(io_index, remainder)  
-        end_idx = start_idx + group_size + (1 if io_index < remainder else 0)  
-
-        for purkinje_idx in range(start_idx, end_idx):
-            purkinje = purkinje_cells[purkinje_idx]
-            syn = h.Exp2Syn(purkinje.soma(0.5))
-            syn.e = 0
-            syn.tau1 = 5
-            syn.tau2 = 25
-            cf_syns[io_index][purkinje.gid] = syn
-            
-            nc = h.NetCon(inferior_olive_cells[io_index].soma(0.5)._ref_v, syn, sec=inferior_olive_cells[io_index].soma)
-            nc.weight[0] = cf_initial_weight
-            nc.delay = 1
-            cf_ncs[io_index][purkinje.gid] = nc
-
-    print(f"Updated number of Inferior Olive cells: {num_inferior_olive}")
-
-    # Update network graph
-    if buttons["network_button"].label.get_text() == "Hide network": 
-        ax_network.cla() # clear network plot
-        ax_network.axis("off")
-        show_network_graph() 
-
-    #recording()
-
 
 def activate_highest_weight_PC(granule_gid):
     global inh_syns, inh_ncs, stimuli
@@ -841,12 +632,20 @@ def toggle_HW(event=None):
 # Toggle between controlling air pressure and inflation time
 def toggle_control(event=None):
     global control_time, buttons
+    global num_inferior_olive, num_purkinje
 
     control_time = next(i for i, value in control_dict.items() if value == buttons["control_button"].value_selected)
 
-    if control_time == 1: # Control inflation time, one cell needed for each finger
-        update_inferior_olive_cells(2)
-        update_purkinje_cells(10)
+    if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
+        num_inferior_olive = 2
+        num_purkinje = 10
+    else: # Control air pressure
+        num_inferior_olive = 1
+        num_purkinje = 5
+
+    reset(event=None, reset_all=False)
+
+    if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
         # Error Button
         if "error_thumb" not in buttons and "error_index" not in buttons:
             error_ax = buttons["error_button"].ax
@@ -860,19 +659,13 @@ def toggle_control(event=None):
             buttons["error_index"] = Button(ax_index, "E. Index")
             buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 0
             buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 1
-
-    else: # Control air pressure
-        update_inferior_olive_cells(1)
-        update_purkinje_cells(5)
-
+    
     buttons["error_button"].ax.set_visible(True if control_time == 0 else False)
     try:
         buttons["error_thumb"].ax.set_visible(False if control_time == 0 else True)
         buttons["error_index"].ax.set_visible(False if control_time == 0 else True)
     except KeyError:
         None
-
-    reset(event=None, reset_all=False)
 
 # Toggle between manual and automatic mode
 def toggle_mode(event=None):
@@ -918,9 +711,11 @@ def toggle_network_graph(event=None):
         buttons["network_button"].label.set_text("Hide network")
         show_network_graph()
         gs.set_height_ratios([1.5, 1, 1])
-    
+
     plt.draw()
     plt.pause(1)
+
+    update_spike_and_weight_plot()
 
 def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=2):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
@@ -1025,8 +820,6 @@ def show_network_graph():
     granule_y = -height*3/4  
     basket_y = purkinje_y
     olive_y = np.linspace(-height, -height*3/4, num_inferior_olive)  
-
-    #purkinje_colors = ["C0", "C1", "C2", "C3", "C4"]
 
     # --- Define and Normalize Line Widths ---
     line_widths = np.empty((num_granule, num_purkinje))
@@ -1268,9 +1061,11 @@ def run_simulation(error=False):
 def update_spike_and_weight_plot():
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
     global buttons, fig, gs, ax_network, ax_plots, ax_buttons
-    
+
     if gs == None or ax_network == None or ax_plots == None or ax_buttons == None:
-        gs = GridSpec(3, num_granule + 1, figure = fig, width_ratios=[1,1,1,0.3], height_ratios=[0.1,1,1])
+        try:
+            gs = GridSpec(3, num_granule + 1, figure = fig, width_ratios=[1,1,1,0.3], height_ratios=[0.1,1,1])
+        except AttributeError: None
         ax_network = fig.add_subplot(gs[0, :])
         ax_network.axis("off")
         ax_plots = [[None for _ in range(num_granule + 1)] for _ in range(1,3)]
@@ -1279,11 +1074,8 @@ def update_spike_and_weight_plot():
                 ax_plots[row-1][col] = fig.add_subplot(gs[row, col])
         ax_buttons = fig.add_subplot(gs[1:, -1])
         ax_buttons.axis("off")
-        #ax_plots = fig.add_subplot(gs[1:, :]) 
-            #fig, axes = plt.subplots(3, num_granule, figsize=(3 * num_granule, 8), gridspec_kw={'height_ratios': [1] + [3] * 2})
     else:
         # Clear previous plots
-        #ax_plots = axes[1:, :] # reserve first row / upper part for network graph
         for row in range(2):
             for col in range(num_granule):
                 ax_plots[row][col].cla()
@@ -1297,10 +1089,9 @@ def update_spike_and_weight_plot():
                 ax_plots[row][col].sharey(ax_plots[row][0])  # Share y-axis with first column
 
     for granule in granule_cells:
-        
         ax1 = ax_plots[0][granule.gid]
         ax1.set_title(f"GC{granule.gid+1} Spiking Activity")
-        ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="C9")
+        ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="C9", linestyle="dashed")
         
         ax2 = ax_plots[1][granule.gid]
         ax2.set_title(f"GC{granule.gid+1} Synaptic Weights")
@@ -1311,23 +1102,63 @@ def update_spike_and_weight_plot():
             try:
                 if v_purkinje_np[purkinje.gid][-1] > -55:
                     text_blocked = " blocked"
-            except IndexError:
-                None
+            except IndexError: None
 
             # --- Spiking Plot for GC and its connected PCs ---
-            ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}", linestyle="dashed")
+            ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}")
 
             # --- Weight Plot for GC to all connected PCs ---
             if len(weights_over_time[(granule.gid, purkinje.gid)]) > 0:
                 ax2.plot(t_np, weights_over_time[(granule.gid, purkinje.gid)], label=f"PC{purkinje.gid+1}{text_blocked}")
-    
-        for inferior_olive in inferior_olive_cells:
-            ax1.plot(t_np, v_inferiorOlive_np[inferior_olive.gid], label=f"IO{inferior_olive.gid+1 if len(inferior_olive_cells) > 1 else ''}", color="black")
-        for basket in basket_cells:
-            ax1.plot(t_np, v_basket_np[basket.gid], label=f"BC{basket.gid+1 if len(basket_cells) > 1 else ''}", color="C8")
 
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='upper left')
+
+        for inferior_olive in inferior_olive_cells:
+            ax1.plot(t_np, v_inferiorOlive_np[inferior_olive.gid], label=f"IO{inferior_olive.gid+1 if len(inferior_olive_cells) > 1 else ''}", color="black", linestyle="dashed")
+        for basket in basket_cells:
+            ax1.plot(t_np, v_basket_np[basket.gid], label=f"BC{basket.gid+1 if len(basket_cells) > 1 else ''}", color="C8", linestyle="dashed")
+
+    # Collect all legend handles and labels for the first row
+    handles_first_row = []
+    labels_first_row = []
+    for col in range(num_granule):
+        handles, labels = ax_plots[0][col].get_legend_handles_labels()
+        for l, h in zip(labels, handles):
+            if l not in labels_first_row:  # Avoid duplicates
+                # Exclude Purkinje cells from the first legend
+                if "PC" not in l:  # Only add non-Purkinje labels
+                    labels_first_row.append(l)
+                    handles_first_row.append(h)
+    labels_first_row, handles_first_row = zip(*sorted(zip(labels_first_row, handles_first_row), key=lambda x: x[0]))
+    
+    # Collect all legend handles and labels for the second row
+    handles_second_row = []
+    labels_second_row = []
+    for col in range(num_granule):
+        handles, labels = ax_plots[1][col].get_legend_handles_labels()
+        for l, h in zip(labels, handles):
+            if l not in labels_second_row:
+                labels_second_row.append(l)
+                handles_second_row.append(h)
+
+    spacing = 0.1
+    height = 0.5
+    # Create a single legend for the first row
+    ncol_first_legend = 1
+    ax_plots[0][0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
+    legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
+    while legend_height_first_row > ax_plots[0][0].get_position().height and ncol_first_legend < len(labels_first_row):
+        ncol_first_legend += 1  # Increase the number of columns (max is the number of labels)
+        ax_plots[0][0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
+        legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
+    
+    # Create a single legend for the second row
+    ncol_second_legend = 1
+    ax_plots[1][0].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing)
+    legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
+    while legend_height_second_row > ax_plots[1][0].get_position().height and ncol_second_legend < len(labels_second_row):
+        ncol_second_legend += 1  # Increase the number of columns (max is the number of labels)
+        ax_plots[1][0].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing, handleheight=height)
+        legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
 
     # Label y-axes only on the first column
     ax_plots[0][0].set_ylabel("Membrane Voltage (mV)")
