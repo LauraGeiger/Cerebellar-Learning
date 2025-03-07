@@ -149,7 +149,7 @@ def init_HW():
 
     # Open serial connection to Arduino
     if board == None:
-        board = PyMata3() # detects port automatically
+        board = PyMata3(com_port="COM8") # detects port automatically
 
     # --- Pin Declaration --- 
     # Push Buttons
@@ -454,8 +454,16 @@ def stimulate_granule_cell():
 def update_granule_stimulation_and_plots(event=None):
     global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, iter, ax_network, animations
 
-    g_id = state
 
+    # Change color of error buttons to default color
+    try:
+        buttons["error_thumb"].color = "0.85"
+        buttons["error_index"].color = "0.85"
+    except KeyError: None
+    buttons["error_button"].color = "0.85"
+
+
+    g_id = state
     activate_highest_weight_PC(g_id)
 
     # Identify active purkinje cells
@@ -564,6 +572,15 @@ def stimulate_inferior_olive_cell(i_id=0):
 
 def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
     global buttons, animations
+
+    # Change color of pressed error button to red
+    if control_time == 1: # Control inflation time
+        if cell_nr == 0: # Thumb
+            buttons["error_thumb"].color = "red"
+        elif cell_nr == 1: # Index finger
+            buttons["error_index"].color = "red"
+    else: # Control air pressure
+        buttons["error_button"].color = "red"
     
     if buttons["network_button"].label.get_text() == "Hide network":
         # Identify active purkinje cell
@@ -607,8 +624,7 @@ def update_state(event):
         if buttons["state_button"].value_selected == f"State {i+1}":
             state = i
 
-    plt.draw()
-    plt.pause(1)
+    update_spike_and_weight_plot()
 
 # Toggle between simulation of controlling HW
 def toggle_HW(event=None):
@@ -625,9 +641,6 @@ def toggle_HW(event=None):
         init_HW()
     else:
         release_actuator()
-
-    plt.draw()
-    plt.pause(1)
 
 # Toggle between controlling air pressure and inflation time
 def toggle_control(event=None):
@@ -655,8 +668,8 @@ def toggle_control(event=None):
             ax_thumb = error_ax.figure.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
             ax_index = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
 
-            buttons["error_thumb"] = Button(ax_thumb, "E. Thumb")
-            buttons["error_index"] = Button(ax_index, "E. Index")
+            buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
+            buttons["error_index"] = Button(ax_index, "Error\nIndex")
             buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 0
             buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 1
     
@@ -706,14 +719,11 @@ def toggle_network_graph(event=None):
         buttons["network_button"].label.set_text("Show network")
         ax_network.cla() # clear network plot
         ax_network.axis("off")
-        gs.set_height_ratios([0.1, 1, 1])
+        gs.set_height_ratios([0.1, 1])
     else:
         buttons["network_button"].label.set_text("Hide network")
         show_network_graph()
-        gs.set_height_ratios([1.5, 1, 1])
-
-    plt.draw()
-    plt.pause(1)
+        gs.set_height_ratios([0.9, 1])
 
     update_spike_and_weight_plot()
 
@@ -745,14 +755,14 @@ def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=2):
 
     return purkinje_drawing
 
-def draw_parallel_fiber(ax, x, y, length=5):
+def draw_parallel_fiber(ax, x, y, length=5, transparency=1):
     """Draws a parallel fiber extending across Purkinje cells."""
-    ax.plot([x - length / 10, x + length], [y , y], color='C9', lw=2)
+    ax.plot([x - length / 10, x + length], [y , y], color='0.8', lw=2, alpha=transparency)
 
-def draw_granule_to_parallel(ax, x, y_start, y_end):
+def draw_granule_to_parallel(ax, x, y_start, y_end, transparency):
     """Draws a granule cell axon that ascends vertically and forms a parallel fiber."""
-    ax.plot([x, x], [y_start, y_end], color='C9', lw=2)  # Vertical axon
-    draw_parallel_fiber(ax, x, y_end)  # Horizontal fiber
+    ax.plot([x, x], [y_start, y_end], color='0.8', lw=2, alpha=transparency)  # Vertical axon
+    draw_parallel_fiber(ax, x, y_end, transparency=transparency)  # Horizontal fiber
 
 def draw_climbing_fiber(ax, x, y_start, y_end, width=0.5):
     """Draws a climbing fiber from the Inferior Olive wrapping around a Purkinje cell."""
@@ -842,13 +852,17 @@ def show_network_graph():
         ax_network.scatter(olive_x, olive_y[inferior_olive.gid], s=200, color='black', label="Inferior Olive")
 
     # Draw Basket cell connecting to Purkinje cell somas
-    ax_network.plot([purkinje_x[0], basket_x], [basket_y, basket_y], color='C8', lw=2)
-    ax_network.scatter(basket_x, basket_y, s=150, color='C8', label="Basket Cell")
+    ax_network.plot([purkinje_x[0], basket_x], [basket_y, basket_y], color='aquamarine', lw=2)
+    ax_network.scatter(basket_x, basket_y, s=150, color='aquamarine', label="Basket Cell")
     
     # Draw Granule cells, vertical axons, and parallel fibers
     for granule in granule_cells:
-        ax_network.scatter(granule_x[granule.gid], granule_y, color='C9', s=100, label="Granule Cell") 
-        draw_granule_to_parallel(ax_network, granule_x[granule.gid], granule_y, purkinje_y + (granule.gid+1) * width)
+        if granule.gid == state:
+            transparency = 1
+        else:
+            transparency = 0.5
+        ax_network.scatter(granule_x[granule.gid], granule_y, color='0.8', s=100, label="Granule Cell", alpha=transparency) 
+        draw_granule_to_parallel(ax_network, granule_x[granule.gid], granule_y, purkinje_y + (granule.gid+1) * width, transparency)
 
     # Draw Purkinje cells
     for purkinje in purkinje_cells:
@@ -870,7 +884,7 @@ def show_network_graph():
     for inferior_olive in inferior_olive_cells:
         ax_network.text(olive_x + 0.2, olive_y[inferior_olive.gid], f"IO{inferior_olive.gid+1}", fontsize=12, color="black")
     ax_network.text(purkinje_x[-1] + 0.2, olive_y[-1] + abs(purkinje_y - olive_y[-1]) / 2, "Climbing Fibers (CF)", fontsize=12, color="black")
-    ax_network.text(basket_x + 0.2, basket_y, "Basket Cell (BC)", fontsize=12, color="C8")
+    ax_network.text(basket_x + 0.2, basket_y, "Basket Cell (BC)", fontsize=12, color="aquamarine")
 
     plt.draw()
     plt.pause(1)
@@ -1064,105 +1078,104 @@ def update_spike_and_weight_plot():
 
     if gs == None or ax_network == None or ax_plots == None or ax_buttons == None:
         try:
-            gs = GridSpec(3, num_granule + 1, figure = fig, width_ratios=[1,1,1,0.3], height_ratios=[0.1,1,1])
+            gs = GridSpec(2, 1 + num_inferior_olive + 1, figure = fig, width_ratios=(1+num_purkinje//5)*[1] + [0.3], height_ratios=[0.1, 1])
         except AttributeError: None
         ax_network = fig.add_subplot(gs[0, :])
         ax_network.axis("off")
-        ax_plots = [[None for _ in range(num_granule + 1)] for _ in range(1,3)]
-        for row in range (1,3): # reserve first row for network graph
-            for col in range(num_granule):
-                ax_plots[row-1][col] = fig.add_subplot(gs[row, col])
-        ax_buttons = fig.add_subplot(gs[1:, -1])
+        ax_plots = [None for _ in range(1 + num_inferior_olive)]
+        for col in range(1 + num_purkinje // 5):
+            ax_plots[col] = fig.add_subplot(gs[1, col])
+        ax_buttons = fig.add_subplot(gs[1, -1])
         ax_buttons.axis("off")
     else:
         # Clear previous plots
-        for row in range(2):
-            for col in range(num_granule):
-                ax_plots[row][col].cla()
+        for col in range(1 + num_inferior_olive):
+            ax_plots[col].cla()
 
-    # Share y-axis within each row
-    for row in range(2):
-        for col in range(num_granule):  # Start from second column
-            if row > 0: 
-                ax_plots[row][col].sharex(ax_plots[0][col])  # Share x-axis with first row
-            if col > 0:
-                ax_plots[row][col].sharey(ax_plots[row][0])  # Share y-axis with first column
+    # Share axis
+    for col in range(1 + num_inferior_olive): 
+        if col > 0:
+            ax_plots[col].sharex(ax_plots[0])  # Share x-axis with first column
+        elif col > 1:
+            ax_plots[col].sharey(ax_plots[1])  # Share y-axis with first column
 
     for granule in granule_cells:
-        ax1 = ax_plots[0][granule.gid]
-        ax1.set_title(f"GC{granule.gid+1} Spiking Activity")
-        ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="C9", linestyle="dashed")
-        
-        ax2 = ax_plots[1][granule.gid]
-        ax2.set_title(f"GC{granule.gid+1} Synaptic Weights")
-        ax2.set_xlabel("Time (ms)")    
+        if granule.gid == state:
+            ax1 = ax_plots[0]#[granule.gid]
+            ax1.set_title(f"Spiking Activity")
+            ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color="0.8", linestyle="dashed")
+            
+            for inferior_olive in inferior_olive_cells:
+                ax2 = ax_plots[1 + inferior_olive.gid]#[granule.gid]
+                ax2.set_title(f"Synaptic Weights {inferior_olive.gid + 1}")
+                ax2.set_xlabel("Time (ms)")    
 
-        for purkinje in purkinje_cells:
-            text_blocked = ""
-            try:
-                if v_purkinje_np[purkinje.gid][-1] > -55:
-                    text_blocked = " blocked"
-            except IndexError: None
+                for purkinje in purkinje_cells:
+                    text_blocked = ""
+                    try:
+                        if v_purkinje_np[purkinje.gid][-1] > -55:
+                            text_blocked = " blocked"
+                    except IndexError: None
 
-            # --- Spiking Plot for GC and its connected PCs ---
-            ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}")
+                    # --- Spiking Plot for GC and its connected PCs ---
+                    ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}")
 
-            # --- Weight Plot for GC to all connected PCs ---
-            if len(weights_over_time[(granule.gid, purkinje.gid)]) > 0:
-                ax2.plot(t_np, weights_over_time[(granule.gid, purkinje.gid)], label=f"PC{purkinje.gid+1}{text_blocked}")
+                    # --- Weight Plot for GC to all connected PCs ---
+                    if len(weights_over_time[(granule.gid, purkinje.gid)]) > 0:
+                        if purkinje.gid >= inferior_olive.gid * num_purkinje // num_inferior_olive and purkinje.gid < (inferior_olive.gid + 1) * num_purkinje // num_inferior_olive:
+                            ax2.plot(t_np, weights_over_time[(granule.gid, purkinje.gid)], label=f"PC{purkinje.gid+1}{text_blocked}", color="C"+str(purkinje.gid))
 
+            for inferior_olive in inferior_olive_cells:
+                ax1.plot(t_np, v_inferiorOlive_np[inferior_olive.gid], label=f"IO{inferior_olive.gid+1 if len(inferior_olive_cells) > 1 else ''}", color="black", linestyle="dashed")
+            for basket in basket_cells:
+                ax1.plot(t_np, v_basket_np[basket.gid], label=f"BC{basket.gid+1 if len(basket_cells) > 1 else ''}", color="aquamarine", linestyle="dashed")
 
-        for inferior_olive in inferior_olive_cells:
-            ax1.plot(t_np, v_inferiorOlive_np[inferior_olive.gid], label=f"IO{inferior_olive.gid+1 if len(inferior_olive_cells) > 1 else ''}", color="black", linestyle="dashed")
-        for basket in basket_cells:
-            ax1.plot(t_np, v_basket_np[basket.gid], label=f"BC{basket.gid+1 if len(basket_cells) > 1 else ''}", color="C8", linestyle="dashed")
-
-    # Collect all legend handles and labels for the first row
+    # Collect all legend handles and labels for the first column
     handles_first_row = []
     labels_first_row = []
-    for col in range(num_granule):
-        handles, labels = ax_plots[0][col].get_legend_handles_labels()
-        for l, h in zip(labels, handles):
-            if l not in labels_first_row:  # Avoid duplicates
-                # Exclude Purkinje cells from the first legend
-                if "PC" not in l:  # Only add non-Purkinje labels
-                    labels_first_row.append(l)
-                    handles_first_row.append(h)
+    handles, labels = ax_plots[0].get_legend_handles_labels()
+    for l, h in zip(labels, handles):
+        if l not in labels_first_row:  # Avoid duplicates
+            # Exclude Purkinje cells from the first legend
+            if "PC" not in l:  # Only add non-Purkinje labels
+                labels_first_row.append(l)
+                handles_first_row.append(h)
     labels_first_row, handles_first_row = zip(*sorted(zip(labels_first_row, handles_first_row), key=lambda x: x[0]))
     
-    # Collect all legend handles and labels for the second row
-    handles_second_row = []
-    labels_second_row = []
-    for col in range(num_granule):
-        handles, labels = ax_plots[1][col].get_legend_handles_labels()
+    # Create a single legend for the first column
+    spacing = 0.1
+    height = 0.5
+    ncol_first_legend = 1
+    ax_plots[0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
+    legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
+    while legend_height_first_row > ax_plots[0].get_position().height and ncol_first_legend < len(labels_first_row):
+        ncol_first_legend += 1  # Increase the number of columns (max is the number of labels)
+        ax_plots[0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
+        legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
+    
+
+    # Collect all legend handles and labels for the other columns
+    for col in range(1, num_inferior_olive + 1):
+        handles_second_row = []
+        labels_second_row = []
+        handles, labels = ax_plots[col].get_legend_handles_labels()
         for l, h in zip(labels, handles):
             if l not in labels_second_row:
                 labels_second_row.append(l)
                 handles_second_row.append(h)
-
-    spacing = 0.1
-    height = 0.5
-    # Create a single legend for the first row
-    ncol_first_legend = 1
-    ax_plots[0][0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
-    legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
-    while legend_height_first_row > ax_plots[0][0].get_position().height and ncol_first_legend < len(labels_first_row):
-        ncol_first_legend += 1  # Increase the number of columns (max is the number of labels)
-        ax_plots[0][0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
-        legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
-    
-    # Create a single legend for the second row
-    ncol_second_legend = 1
-    ax_plots[1][0].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing)
-    legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
-    while legend_height_second_row > ax_plots[1][0].get_position().height and ncol_second_legend < len(labels_second_row):
-        ncol_second_legend += 1  # Increase the number of columns (max is the number of labels)
-        ax_plots[1][0].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing, handleheight=height)
+        
+        # Create a single legend for the other columns
+        ncol_second_legend = 1
+        ax_plots[col].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing)
         legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
+        while legend_height_second_row > ax_plots[col].get_position().height and ncol_second_legend < len(labels_second_row):
+            ncol_second_legend += 1  # Increase the number of columns (max is the number of labels)
+            ax_plots[col].legend(handles_second_row, labels_second_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_second_legend, labelspacing=spacing, handleheight=height)
+            legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
 
     # Label y-axes only on the first column
-    ax_plots[0][0].set_ylabel("Membrane Voltage (mV)")
-    ax_plots[1][0].set_ylabel("Synaptic Weight")
+    ax_plots[0].set_ylabel("Membrane Voltage (mV)")
+    ax_plots[1].set_ylabel("Synaptic Weight")
 
     # --- Buttons ---
     x_pos = 0.01
