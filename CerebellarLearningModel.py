@@ -367,11 +367,11 @@ def release_actuator():
 def control_actuator(input):
     if control_time == 1: # Control inflation time
         [inflation_time_thumb, inflation_time_index] = input
-        air_pressure = 255
+        air_pressure = 200
     else: # Control air pressure
         air_pressure = input
-        inflation_time_thumb = 2
-        inflation_time_index = 4
+        inflation_time_thumb = 5
+        inflation_time_index = 6
 
     board.servo_config(Servo1_pin) # Flexion - Thumb
     board.servo_config(Servo2_pin) # Extension - Thumb
@@ -403,15 +403,15 @@ def control_actuator(input):
     while True:
         elapsed_time = time.time() - start_time  # Calculate elapsed time
 
-        if elapsed_time >= inflation_time_thumb * 0.5 and not executed["stop_thumb_extension"]:
+        if elapsed_time >= inflation_time_thumb and not executed["stop_thumb_extension"]:
             board.analog_write(Servo2_pin, Servo2_HOLD)  # Stop extension - Thumb
             executed["stop_thumb_extension"] = True
 
-        if elapsed_time >= inflation_time_index * 0.5 and not executed["stop_index_extension"]:
+        if elapsed_time >= inflation_time_index * 0.1 and not executed["stop_index_extension"]:
             board.analog_write(Servo4_pin, Servo4_HOLD)  # Stop extension - Index
             executed["stop_index_extension"] = True
 
-        if elapsed_time >= inflation_time_thumb and not executed["stop_thumb_flexion"]:
+        if elapsed_time >= inflation_time_thumb * 0.6 and not executed["stop_thumb_flexion"]:
             board.analog_write(Servo1_pin, Servo1_HOLD)  # Stop flexion - Thumb
             executed["stop_thumb_flexion"] = True
 
@@ -516,7 +516,7 @@ def update_granule_stimulation_and_plots(event=None):
             control_actuator([inflation_time_thumb, inflation_time_index])
         else: # Control air pressure
             air_pressure = pc_air_pressure_mapping[p_id] # look up table for purkinje cell to voltage mapping
-            print(f"Controlling air compressor with {int(air_pressure/255.0*100)}% (PC{p_id+1})")
+            print(f"Controlling air compressor with {air_pressure} ({int(air_pressure/255.0*100)}%) (PC{p_id+1})")
             control_actuator(air_pressure)
         
         board.sleep(1)
@@ -1238,6 +1238,8 @@ def main(reset=True):
     init_variables(reset)
     create_connections()
     recording()
+
+    #h.topology()
     
     run_simulation()
     iter += 1
