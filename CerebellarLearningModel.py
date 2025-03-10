@@ -12,7 +12,7 @@ from pymata_aio.pymata3 import PyMata3
 from pymata_aio.constants import Constants
 
 
-# using Python 3.8.20
+# using Python 3.10.16
 
 # --- Granule, Purkinje, Inferior Olive, and Basket Cell Classes ---
 class GranuleCell:
@@ -146,7 +146,7 @@ def init_HW():
 
     # Open serial connection to Arduino
     if board is None:
-        board = PyMata3() # # detects port automatically, optinal: com_port="COM8"
+        board = PyMata3(com_port="COM8")
     
     # --- Pin Declaration --- 
     # Push Buttons
