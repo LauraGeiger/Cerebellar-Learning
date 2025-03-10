@@ -56,8 +56,6 @@ def init_variables(reset_all=True):
     # --- Plotting ---
     try: # Reset figure
         fig.clf()
-        #plt.close(fig)
-        #fig = plt.figure(layout="constrained", figsize=[11,7])
     except NameError: # Create figure
         plt.ion()  # Turn on interactive mode
         fig = plt.figure(layout="constrained", figsize=[11,7])
@@ -75,11 +73,9 @@ def init_variables(reset_all=True):
     if reset_all == True: control_time = 0                    # 0: control air pressure, 1: control time
     mode_dict = {0:"Manual", 1:"Auto"}
     hw_dict = {0:"Simulation", 1:"Control HW"}
-    control_dict = {0:"Air pressure", 1:"Inflation time"}
+    control_dict = {0:"Air pressure", 1:"Inflation time", 2:"Pressure & Time"}
     environment = {0 : 0, 1 : 2, 2 : 4} # "state : PC_ID" --> environment maps object_ID/state to the desired Purkinje Cell
     
-    
-
     # --- Spikes and Voltages for Plotting ---
     t = h.Vector()  # First time initialization
     t_np = None
@@ -127,7 +123,8 @@ def init_variables(reset_all=True):
     dt_LTD = -10  # Time window for LTD (ms)
 
     # --- HW Paramaters ---
-    board = None    
+    if 'board' not in locals() and 'board' not in globals():
+        board = None # Init board only once
     min_air_pressure = 150 # Minimum PWM value to control air compressor
     max_air_pressure = 255 # Minimum PWM value to control air compressor
     air_pressures = np.linspace(min_air_pressure, max_air_pressure, num_purkinje)
@@ -148,9 +145,9 @@ def init_HW():
     #########################################
 
     # Open serial connection to Arduino
-    if board == None:
-        board = PyMata3(com_port="COM8") # detects port automatically
-
+    if board is None:
+        board = PyMata3() # # detects port automatically, optinal: com_port="COM8"
+    
     # --- Pin Declaration --- 
     # Push Buttons
     PushB1_pin = 50
@@ -245,7 +242,7 @@ def create_connections():
             pf_syns[granule.gid][purkinje.gid] = syn
             nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
             nc.weight[0] = pf_initial_weight + np.random.uniform(0,0.001)
-            nc.delay = 1
+            nc.delay = 0
             pf_ncs[granule.gid][purkinje.gid] = nc
             weights[(granule.gid, purkinje.gid)] = nc.weight[0]
     
@@ -266,7 +263,7 @@ def create_connections():
             cf_syns[inferior_olive.gid][purkinje.gid] = syn
             nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
             nc.weight[0] = cf_initial_weight
-            nc.delay = 1
+            nc.delay = 0
             cf_ncs[inferior_olive.gid][purkinje.gid] = nc
 
     # Basket → Purkinje Connections (inhibitory)
@@ -279,58 +276,39 @@ def create_connections():
             inh_syns[basket.gid][purkinje.gid] = syn
             nc = h.NetCon(basket.soma(0.5)._ref_v, syn, sec=basket.soma)
             nc.weight[0] = basket_initial_weight
-            nc.delay = 1
+            nc.delay = 0
             inh_ncs[basket.gid][purkinje.gid] = nc
 
 def activate_highest_weight_PC(granule_gid):
     global inh_syns, inh_ncs, stimuli
-    
-    if control_time == 1: # control inflation time
-        max_weight_first = -np.inf
-        max_weight_second = -np.inf
-        active_purkinje_first = None
-        active_purkinje_second = None
-    else: # control air pressure
-        max_weight = -np.inf
-        active_purkinje = None
-    
+
+    # Initialize dictionaries for max_weights and active Purkinje cells
+    max_weights = [-np.inf, -np.inf, -np.inf]
+    active_purkinje = [None, None, None]
+
+    def get_active_purkinje(purkinje, weight, weight_key):
+        if weight > max_weights[weight_key]:
+                max_weights[weight_key] = weight
+                active_purkinje[weight_key] = purkinje
+
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
         try:
-            #print(f"PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
             if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 50 mV
-                #print(f"Skip PC{purkinje.gid+1}, voltage: {v_purkinje_np[purkinje.gid][-1]} mV")
                 continue # Skip the blocked Purkinje cell
         except (NameError, IndexError):
             continue
 
         weight = pf_ncs[granule_gid][purkinje.gid].weight[0]
 
-        if control_time == 1: # control inflation time
-            if purkinje.gid < num_purkinje//2:  # First half of purkinje cells
-                if weight > max_weight_first:
-                    max_weight_first = weight
-                    active_purkinje_first = purkinje
-                    
-            else:                               # Second half of purkinje cells
-                if weight > max_weight_second:
-                    max_weight_second = weight
-                    active_purkinje_second = purkinje
-        
-        else: # control air pressure
-            if weight > max_weight:
-                max_weight = weight
-                active_purkinje = purkinje
-        
-    # Determine the active Purkinje cells based on control_time
-    if control_time == 1:  # Control inflation time
-        active_purkinje_set = [active_purkinje_first, active_purkinje_second]
-    else:  # Control air pressure
-        active_purkinje_set = [active_purkinje]
+        group_size = control_time + 1
+        for i in range(group_size):
+            if purkinje.gid >= i * num_purkinje//group_size and purkinje.gid < (i+1) * num_purkinje//group_size:
+                get_active_purkinje(purkinje, weight, i)
 
-    # Iterate over all Purkinje cells
+    # Set inhibition and climbing fiber weights for all Purkinje cells
     for purkinje in purkinje_cells:
-        is_active = purkinje in active_purkinje_set  # Check if the Purkinje cell is active
+        is_active = purkinje in active_purkinje#_set  # Check if the Purkinje cell is active
 
         # Set inhibition and climbing fiber weights
         new_inh_weight = 0 if is_active else basket_initial_weight
@@ -350,7 +328,6 @@ def release_actuator():
     board.servo_config(Servo2_pin) 
     board.servo_config(Servo3_pin)
     board.servo_config(Servo4_pin) 
-    #board.sleep(1)
     # Set servos to outlet position to let air out
     board.analog_write(Servo1_pin, Servo1_OUTLET) # First release flexion
     board.analog_write(Servo3_pin, Servo3_OUTLET) # First release flexion
@@ -364,15 +341,12 @@ def release_actuator():
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
     board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
-def control_actuator(input):
-    if control_time == 1: # Control inflation time
-        [inflation_time_thumb, inflation_time_index] = input
-        air_pressure = 200
-    else: # Control air pressure
-        air_pressure = input
-        inflation_time_thumb = 5
-        inflation_time_index = 6
+def control_actuator(pressure=200, time_thumb=5, time_index=6):
 
+    print(f"Controlling air compressor with {pressure} ({int(pressure/255.0*100)}%)")
+    print(f"Inflating thumb for {time_thumb}s")
+    print(f"Inflating index finger for {time_index}s")
+    
     board.servo_config(Servo1_pin) # Flexion - Thumb
     board.servo_config(Servo2_pin) # Extension - Thumb
     board.servo_config(Servo3_pin) # Flexion - Index finger
@@ -383,11 +357,11 @@ def control_actuator(input):
     board.analog_write(Servo4_pin, Servo4_INLET)
     board.sleep(2)
 
-    if air_pressure is not None:
-        board.analog_write(COMP_pin, int(air_pressure)) # Start inflation
+    if pressure is not None:
+        board.analog_write(COMP_pin, int(pressure)) # Start inflation
 
     # Determine the total inflation time
-    total_inflation_time = max(inflation_time_thumb, inflation_time_index)
+    total_inflation_time = max(time_thumb, time_index)
 
     # Get start time
     start_time = time.time()
@@ -403,19 +377,19 @@ def control_actuator(input):
     while True:
         elapsed_time = time.time() - start_time  # Calculate elapsed time
 
-        if elapsed_time >= inflation_time_thumb and not executed["stop_thumb_extension"]:
+        if elapsed_time >= time_thumb and not executed["stop_thumb_extension"]:
             board.analog_write(Servo2_pin, Servo2_HOLD)  # Stop extension - Thumb
             executed["stop_thumb_extension"] = True
 
-        if elapsed_time >= inflation_time_index * 0.1 and not executed["stop_index_extension"]:
+        if elapsed_time >= time_index * 0.1 and not executed["stop_index_extension"]:
             board.analog_write(Servo4_pin, Servo4_HOLD)  # Stop extension - Index
             executed["stop_index_extension"] = True
 
-        if elapsed_time >= inflation_time_thumb * 0.6 and not executed["stop_thumb_flexion"]:
+        if elapsed_time >= time_thumb * 0.6 and not executed["stop_thumb_flexion"]:
             board.analog_write(Servo1_pin, Servo1_HOLD)  # Stop flexion - Thumb
             executed["stop_thumb_flexion"] = True
 
-        if elapsed_time >= inflation_time_index and not executed["stop_index_flexion"]:
+        if elapsed_time >= time_index and not executed["stop_index_flexion"]:
             board.analog_write(Servo3_pin, Servo3_HOLD)  # Stop flexion - Index
             executed["stop_index_flexion"] = True
 
@@ -459,6 +433,7 @@ def update_granule_stimulation_and_plots(event=None):
     try:
         buttons["error_thumb"].color = "0.85"
         buttons["error_index"].color = "0.85"
+        buttons["error_pressure"].color = "0.85"
     except KeyError: None
     buttons["error_button"].color = "0.85"
 
@@ -468,27 +443,35 @@ def update_granule_stimulation_and_plots(event=None):
 
     # Identify active purkinje cells
     b_id = 0
-    if control_time == 1: # Control inflation time
+    p_ids = []
+    if control_time == 0: # Control air pressure
+        p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        p_ids.append(p_id)
+    elif control_time == 1: # Control inflation time
         p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//2] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
         p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//2:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-    else: # Control air pressure
-        p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        p_ids.append(p_id_first)
+        p_ids.append(p_id_second)
+    elif control_time == 2: # Control air pressure & inflation time
+        p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        p_ids.append(p_id_first)
+        p_ids.append(p_id_second)
+        p_ids.append(p_id_third)
 
     if buttons["network_button"].label.get_text() == "Hide network":
         # Run simple spike animation
-        spike, = ax_network.plot([], [], 'mo', markersize=15)
-        if control_time == 1: # Control inflation time
-            ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 0, p_id_first, g_id))
-            animations.append(ani)
-            plt.pause(4)
-            spike2, = ax_network.plot([], [], 'mo', markersize=15)
-            ani2 = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike2, 0, p_id_second, g_id))
-            animations.append(ani2)
-            plt.pause(4)
-        else: # Control air pressure
-            ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 0, p_id, g_id))
-            animations.append(ani)
-            plt.pause(4)
+        spikes = []
+        g_ids = []
+        for i in range(control_time + 1):
+            spike, = ax_network.plot([], [], 'mo', markersize=15)
+            spikes.append(spike)
+            g_ids.append(g_id)
+
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids, g_ids))
+        animations.append(ani)
+        plt.pause(4)
         
     stimulate_granule_cell()
     run_simulation()
@@ -516,16 +499,18 @@ def update_granule_stimulation_and_plots(event=None):
         except Exception as e:
             print(f"Not able to read pressure sensor values: {e}")
 
-        if control_time == 1: # Control inflation time
-            inflation_time_thumb = pc_inflation_time_mapping[p_id_first] if p_id_first is not None else 0 # look up table for purkinje cell to time mapping
-            inflation_time_index = pc_inflation_time_mapping[p_id_second] if p_id_second is not None else 0 # look up table for purkinje cell to time mapping
-            print(f"Inflating thumb for {inflation_time_thumb}s (PC{p_id_first+1})")
-            print(f"Inflating index finger for {inflation_time_index}s (PC{p_id_second+1})")
-            control_actuator([inflation_time_thumb, inflation_time_index])
-        else: # Control air pressure
-            air_pressure = pc_air_pressure_mapping[p_id] # look up table for purkinje cell to voltage mapping
-            print(f"Controlling air compressor with {air_pressure} ({int(air_pressure/255.0*100)}%) (PC{p_id+1})")
-            control_actuator(air_pressure)
+        if control_time == 0: # Control air pressure
+            air_pressure = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
+            control_actuator(pressure=air_pressure)
+        elif control_time == 1: # Control inflation time
+            inflation_time_thumb = pc_inflation_time_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to time mapping
+            inflation_time_index = pc_inflation_time_mapping[p_ids[1]] if p_ids[1] is not None else 0 # look up table for purkinje cell to time mapping
+            control_actuator(time_thumb=inflation_time_thumb, time_index=inflation_time_index)
+        elif control_time == 2: # Control air pressure & inflation time
+            air_pressure = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
+            inflation_time_thumb = pc_inflation_time_mapping[p_ids[1]] if p_ids[1] is not None else 0 # look up table for purkinje cell to time mapping
+            inflation_time_index = pc_inflation_time_mapping[p_ids[2]] if p_ids[2] is not None else 0 # look up table for purkinje cell to time mapping
+            control_actuator(pressure=air_pressure, time_thumb=inflation_time_thumb, time_index=inflation_time_index)
         
         board.sleep(1)
         
@@ -540,77 +525,63 @@ def update_granule_stimulation_and_plots(event=None):
 
 # Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell(i_id=0):
-
     stim = h.IClamp(inferior_olive_cells[i_id].soma(0.5))
     stim.delay = h.t
     stim.dur = 5
     stim.amp = 0.1
     stimuli.append(stim)
 
-    # Define complex spike burst + pause
-    burst_start = h.t
-    num_spikes = 3
-    burst_freq = 10*frequency
-    pause_duration = 5
-    pause_current = -0.1
-
-    burst_times = np.arange(burst_start, burst_start + (num_spikes * (1000 / burst_freq)), 1000 / burst_freq)
-    time_points = list(burst_times) + [burst_times[-1] + 1, burst_times[-1] + 1 + pause_duration]
-    current_values = [1.0] * len(burst_times) + [pause_current, 0]
-
-    t_vec = h.Vector(time_points)
-    i_vec = h.Vector(current_values)
-    i_vec.play(stim._ref_amp, t_vec, True)
-
-    # Send inhibitory signals to all purkinje cells expect active_purkinje
-    #for basket in basket_cells:
-    #    basket_stim = h.IClamp(basket.soma(0.5))
-    #    basket_stim.delay = stim.delay -1 # same as inferior olive
-    #    basket_stim.dur = stim.dur # same as inferior olive
-    #    basket_stim.amp = stim.amp # same as inferior olive
-    #    stimuli.append(basket_stim)
-
 def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
     global buttons, animations
 
     # Change color of pressed error button to red
+    if control_time == 0: # Control air pressure
+        buttons["error_button"].color = "red"
     if control_time == 1: # Control inflation time
         if cell_nr == 0: # Thumb
             buttons["error_thumb"].color = "red"
         elif cell_nr == 1: # Index finger
             buttons["error_index"].color = "red"
-    else: # Control air pressure
-        buttons["error_button"].color = "red"
-    
+    if control_time == 2: # Control air pressure & inflation time
+        if cell_nr == 0: # Pressure
+            buttons["error_pressure"].color = "red"
+        elif cell_nr == 1: # Thumb
+            buttons["error_thumb"].color = "red"
+        elif cell_nr == 2: # Index finger
+            buttons["error_index"].color = "red" 
+        
     if buttons["network_button"].label.get_text() == "Hide network":
         # Identify active purkinje cell
         b_id = 0
-        if control_time == 1: # Control inflation time
+        if control_time == 0: # Control air pressure
+            p_id_first = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        elif control_time == 1: # Control inflation time
             p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//2] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
             p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//2:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-        else: # Control air pressure
-            p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+        elif control_time == 2: # Control air pressure & inflation time
+            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+
         # Run complex spike animation
         spike, = ax_network.plot([], [], 'mo', markersize=15)
-        if control_time == 1: # Control inflation time
-            if cell_nr == 0: # Trigger complex spike from IO 0
-                ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 1, p_id_first, cell_nr))
-                animations.append(ani)
-                plt.pause(4)
-            elif cell_nr == 1: # Trigger complex spike from IO 1
-                ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 1, p_id_second, cell_nr))
-                animations.append(ani)
-                plt.pause(4)
-        else: # Control air pressure
-            ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spike, 1, p_id))
-            animations.append(ani)
-            plt.pause(4)
-
-    if cell_nr == 0:
-        stimulate_inferior_olive_cell(i_id=0)
-    elif cell_nr == 1:
-        stimulate_inferior_olive_cell(i_id=1)
-    run_simulation(error=True)
+        spikes = [spike]
+        i_ids = [cell_nr]
+        p_ids = []
+        
+        if cell_nr == 0: # Trigger complex spike from IO 0
+            p_ids.append(p_id_first)
+        elif cell_nr == 1: # Trigger complex spike from IO 1
+            p_ids.append(p_id_second)
+        elif cell_nr == 2: # Trigger complex spike from IO 2
+            p_ids.append(p_id_third)
+        
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
+        animations.append(ani)
+        plt.pause(4)
+        
+    stimulate_inferior_olive_cell(i_id=cell_nr)
+    #run_simulation(error=True)
     
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
@@ -649,29 +620,61 @@ def toggle_control(event=None):
 
     control_time = next(i for i, value in control_dict.items() if value == buttons["control_button"].value_selected)
 
-    if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
-        num_inferior_olive = 2
-        num_purkinje = 10
-    else: # Control air pressure
+    if control_time == 0: # Control air pressure
         num_inferior_olive = 1
         num_purkinje = 5
-
+    elif control_time == 1: # Control inflation time, one inferior_olive needed for each finger
+        num_inferior_olive = 2
+        num_purkinje = 10
+    elif control_time == 2: # Control air pressure and inflation time, one inferior_olive needed for the air pressure and one needed for the timing of each finger
+        num_inferior_olive = 3
+        num_purkinje = 15
+    
     reset(event=None, reset_all=False)
+    if control_HW==1:
+        init_HW()
 
     if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
-        # Error Button
-        if "error_thumb" not in buttons and "error_index" not in buttons:
+        # Error Button for Thumb
+        if "error_thumb" not in buttons:
             error_ax = buttons["error_button"].ax
             pos = error_ax.get_position()
-
-            # Create new axes for error_thumb and error_index to place them side by side
             ax_thumb = error_ax.figure.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
-            ax_index = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
-
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_index"] = Button(ax_index, "Error\nIndex")
             buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 0
+
+        # Error Button for Index Finger
+        if "error_index" not in buttons:
+            error_ax = buttons["error_button"].ax
+            pos = error_ax.get_position()
+            ax_index = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
+            buttons["error_index"] = Button(ax_index, "Error\nIndex")
             buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 1
+    
+    elif control_time == 2: # Control air pressure & inflation time
+        # Error Button for Air Pressure
+        if "error_pressure" not in buttons:
+            error_ax = buttons["error_button"].ax
+            pos = error_ax.get_position()
+            ax_pressure = error_ax.figure.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            buttons["error_pressure"] = Button(ax_pressure, "Error\nPressure")
+            buttons["error_pressure"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 2
+
+        # Error Button for Thumb
+        if "error_thumb" not in buttons:
+            error_ax = buttons["error_button"].ax
+            pos = error_ax.get_position()
+            ax_thumb = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
+            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 0
+
+        # Error Button for Index Finger
+        if "error_index" not in buttons:
+            error_ax = buttons["error_button"].ax
+            pos = error_ax.get_position()
+            ax_index = error_ax.figure.add_axes([pos.x0 + 2* (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            buttons["error_index"] = Button(ax_index, "Error\nIndex")
+            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=2)) # stimulate IO cell 1
     
     buttons["error_button"].ax.set_visible(True if control_time == 0 else False)
     try:
@@ -696,10 +699,7 @@ def toggle_mode(event=None):
     if mode == 1: # automatic mode
         # Identify active purkinje cells
         b_id = 0
-        if control_time == 1: # Control inflation time
-            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//2] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//2:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-        else: # Control air pressure
+        if control_time == 0: # Control air pressure
             p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
 
             for i in range(10):
@@ -710,6 +710,16 @@ def toggle_mode(event=None):
                         update_inferior_olive_stimulation_and_plots() # automatically trigger error
                 if mode == 0:
                     break
+
+        elif control_time == 1: # Control inflation time
+            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//2] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//2:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            print("Automatic mode not available in this setting.")
+        elif control_time == 2: # Control air pressure & inflation time
+            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            print("Automatic mode not available in this setting.")
 
         buttons["automatic_button"].set_active(0)
 
@@ -733,8 +743,6 @@ def draw_purkinje(ax, x, y, width=0.5, height=3, color='orange', line_width=2):
 
     # Dendritic tree
     for i in range(num_granule):  # Branching
-        #drawing = ax.plot([x, x + (i-1) * width], [y, y + (i+1) * width], color=color, lw=line_width[i] if np.isscalar(line_width) is not True else line_width)
-        #purkinje_drawing.append(drawing[0])
         top_width =  (line_width[i] if np.isscalar(line_width) is not True else line_width)
         triangle = patches.Polygon([
             (x + (i-1) * width - top_width / 2, y + (i+1) * width),  # Left top
@@ -815,6 +823,7 @@ def update_weights_in_network():
 
 def show_network_graph():
     global ax_network, purkinje_drawing
+    global min_weight, max_weight
 
     purkinje_drawing = []
 
@@ -833,12 +842,10 @@ def show_network_graph():
 
     # --- Define and Normalize Line Widths ---
     line_widths = np.empty((num_granule, num_purkinje))
-    #min_w, max_w = min(weights.values()), max(weights.values())
-    min_w, max_w = min_weight, max_weight
-    if max_w > min_w:  # Avoid division by zero
+    if max_weight > min_weight:  # Avoid division by zero
         for g in range(num_granule):
             for p in range(num_purkinje):
-                line_widths[g,p] = (weights[(g,p)] - min_w) / (max_w - min_w)
+                line_widths[g,p] = (weights[(g,p)] - min_weight) / (max_weight - min_weight)
     else:
         for g in range(num_granule):
             for p in range(num_purkinje):
@@ -889,8 +896,7 @@ def show_network_graph():
     plt.draw()
     plt.pause(1)
 
-def update_animation(frame, spike, spike_type=0, p_id=0, g_or_i_id=0): # spike_type = 0 (simple) or 1 (complex)
-
+def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
     # Animation parameters
     total_steps = 30  # Total frames in animation
     segment_steps = total_steps // 3  # Frames per segment
@@ -902,44 +908,52 @@ def update_animation(frame, spike, spike_type=0, p_id=0, g_or_i_id=0): # spike_t
     granule_x = np.linspace(-2.5, -2, num_granule)
     olive_x = purkinje_x[-1] + 0.4
     purkinje_y = 0
-    granule_y = -height 
-    olive_y = np.linspace(-height, -height*3/4, num_inferior_olive)
+    granule_y = -height
+    olive_y = np.linspace(-height, -height * 3 / 4, num_inferior_olive)
     
-    if spike_type == 1: # Complex Spike from Inferior Olive
-        start_x, start_y = olive_x, olive_y[g_or_i_id]
-        junction1_x, junction1_y = purkinje_x[p_id] + 0.1, start_y
-        junction2_x, junction2_y = junction1_x, purkinje_y - 0.1
-    else: # Simple Spike from Granule Cell
-        start_x, start_y = granule_x[g_or_i_id], granule_y
-        junction1_x, junction1_y = start_x, purkinje_y + (g_or_i_id+1) * width
-        junction2_x, junction2_y = purkinje_x[p_id] + (g_or_i_id-1) * width, junction1_y
-    end_x, end_y = purkinje_x[p_id], purkinje_y
+    for idx, spike in enumerate(spikes):
+        # For each spike, get corresponding p_id and g_or_i_id
+        p_id = p_ids[idx] if idx < len(p_ids) else 0  # Default to 0 if not enough IDs provided
+        g_or_i_id = g_or_i_ids[idx] if idx < len(g_or_i_ids) else 0  # Default to 0 if not enough IDs
+        
+        # Determine start and end positions based on spike type
+        if spike_type == 1:  # Complex Spike from Inferior Olive
+            start_x, start_y = olive_x, olive_y[g_or_i_id]
+            junction1_x, junction1_y = purkinje_x[p_id] + 0.1, start_y
+            junction2_x, junction2_y = junction1_x, purkinje_y - 0.1
+        else:  # Simple Spike from Granule Cell
+            start_x, start_y = granule_x[g_or_i_id], granule_y
+            junction1_x, junction1_y = start_x, purkinje_y + (g_or_i_id + 1) * width
+            junction2_x, junction2_y = purkinje_x[p_id] + (g_or_i_id - 1) * width, junction1_y
+        end_x, end_y = purkinje_x[p_id], purkinje_y
 
-    # Determine current segment and compute clamped t
-    if frame < segment_steps:  # Move to Junction 1
-        t = ((frame+1) / segment_steps)
-        t = min(max(t, 0), 1)  # Ensure t is in [0,1]
-        x_new = start_x + t * (junction1_x - start_x)
-        y_new = start_y + t * (junction1_y - start_y)
+        # Determine current segment and compute clamped t
+        if frame < segment_steps:  # Move to Junction 1
+            t = ((frame + 1) / segment_steps)
+            t = min(max(t, 0), 1)  # Ensure t is in [0,1]
+            x_new = start_x + t * (junction1_x - start_x)
+            y_new = start_y + t * (junction1_y - start_y)
 
-    elif frame < 2 * segment_steps:  # Move to Junction 2
-        t = ((frame + 1 - segment_steps) / segment_steps)
-        t = min(max(t, 0), 1)  # Ensure t is in [0,1]
-        x_new = junction1_x + t * (junction2_x - junction1_x)
-        y_new = junction1_y + t * (junction2_y - junction1_y)
+        elif frame < 2 * segment_steps:  # Move to Junction 2
+            t = ((frame + 1 - segment_steps) / segment_steps)
+            t = min(max(t, 0), 1)  # Ensure t is in [0,1]
+            x_new = junction1_x + t * (junction2_x - junction1_x)
+            y_new = junction1_y + t * (junction2_y - junction1_y)
 
-    else:  # Move to Purkinje Cell
-        t = ((frame + 1 - 2 * segment_steps) / segment_steps)
-        t = min(max(t, 0), 1)  # Ensure t is in [0,1]
-        x_new = junction2_x + t * (end_x - junction2_x)
-        y_new = junction2_y + t * (end_y - junction2_y)
+        else:  # Move to Purkinje Cell
+            t = ((frame + 1 - 2 * segment_steps) / segment_steps)
+            t = min(max(t, 0), 1)  # Ensure t is in [0,1]
+            x_new = junction2_x + t * (end_x - junction2_x)
+            y_new = junction2_y + t * (end_y - junction2_y)
 
-    spike.set_data([x_new], [y_new])
+        # Update the spike's data
+        spike.set_data([x_new], [y_new])
 
-    if frame == total_steps - 1: # Last frame --> hide the spike
-        spike.set_alpha(0)
+        # If last frame, hide the spike
+        if frame == total_steps - 1:
+            spike.set_alpha(0)
 
-    return [spike]
+    return spikes  # Return all updated spikes
 
 def reset(event=None, reset_all=True):
     global t, iter
@@ -980,7 +994,6 @@ def recording():
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
 
     # --- Record Spiking Activity and Voltages---
-    #t = h.Vector()
     t.record(h._ref_t)  # Reattach to NEURON's time
 
     granule_spikes = {i: h.Vector() for i in range(num_granule)}
@@ -1011,18 +1024,16 @@ def recording():
     
     h.finitialize(-65) # Set all membrane potentials to -65mV
     
-
 def run_simulation(error=False):
     global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes
     global iter, spike_times, processed_GC_spikes, processed_pairs, frequency, weights_over_time
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
 
     if error:
-        time_span = 1/4 * 1/frequency*1000
+        time_span = 1/8 * 1/frequency*1000
         stop_time = h.t + time_span
     else:
         stop_time = 1/frequency*1000 * (iter + 1) # run 20 ms per iteration
-
 
     # Continuously run the simulation and update weights during the simulation
     while h.t < stop_time: 
@@ -1153,7 +1164,6 @@ def update_spike_and_weight_plot():
         ax_plots[0].legend(handles_first_row, labels_first_row, loc="upper left", bbox_to_anchor=(0, 1), ncol=ncol_first_legend, labelspacing=spacing, handleheight=height)
         legend_height_first_row = 1/20 * (len(labels_first_row) * (height + spacing) - spacing ) / ncol_first_legend
     
-
     # Collect all legend handles and labels for the other columns
     for col in range(1, num_inferior_olive + 1):
         handles_second_row = []
@@ -1222,10 +1232,10 @@ def update_spike_and_weight_plot():
 
     # Control Button
     if "control_button" not in buttons:
-        hardware_ax = fig.add_axes([y_pos, x_pos, width, height_radio_button_2])
-        buttons["control_button"] = RadioButtons(hardware_ax, (control_dict[0], control_dict[1]), active=control_time)
+        hardware_ax = fig.add_axes([y_pos, x_pos, width, height_radio_button_3])
+        buttons["control_button"] = RadioButtons(hardware_ax, (control_dict[0], control_dict[1], control_dict[2]), active=control_time)
         buttons["control_button"].on_clicked(toggle_control)
-        x_pos += height_radio_button_2
+        x_pos += height_radio_button_3
 
     # Hardware Button
     if "hardware_button" not in buttons:
