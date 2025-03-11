@@ -60,7 +60,7 @@ def init_variables(reset_all=True):
         fig.clf()
     except NameError: # Create figure
         plt.ion()  # Turn on interactive mode
-        fig = plt.figure(layout="tight", figsize=[11,7])
+        fig = plt.figure(layout="constrained", figsize=[11,7])
     
     gs, ax_network, ax_plots, ax_buttons = None, None, None, None
     animations = []
@@ -555,7 +555,6 @@ def stimulate_inferior_olive_cell(i_id=0):
 
 def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
     global buttons, animations
-
     # Change color of pressed error button to red
     if control_time == 0: # Control air pressure
         buttons["error_button"].color = color_error
@@ -603,7 +602,7 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         plt.pause(4)
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
-    #run_simulation(error=True)
+    run_simulation(error=True)
     
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
@@ -664,54 +663,77 @@ def toggle_control(event=None):
     if control_HW==1:
         init_HW()
 
+    # Change activation of error buttons
+    try:
+        buttons["error_button"].disconnect_events()
+    except Exception: None
+    try:
+        buttons["error_thumb"].disconnect_events()
+    except Exception: None
+    try:
+        buttons["error_index"].disconnect_events()
+    except Exception: None
+    try:
+        buttons["error_pressure"].disconnect_events()
+    except Exception: None
+
+    pos = buttons["error_button"].ax.get_position()
+
     if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
         # Error Button for Thumb
         if "error_thumb" not in buttons:
-            error_ax = buttons["error_button"].ax
-            pos = error_ax.get_position()
-            ax_thumb = error_ax.figure.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
+            #error_ax = buttons["error_button"].ax
+            #pos = error_ax.get_position()
+            ax_thumb = fig.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 0
+            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
-            error_ax = buttons["error_button"].ax
-            pos = error_ax.get_position()
-            ax_index = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
+            #error_ax = buttons["error_button"].ax
+            #pos = error_ax.get_position()
+            ax_index = fig.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
-            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 1
+            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 1
     
     elif control_time == 2: # Control air pressure & inflation time
         # Error Button for Air Pressure
         if "error_pressure" not in buttons:
-            error_ax = buttons["error_button"].ax
-            pos = error_ax.get_position()
-            ax_pressure = error_ax.figure.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            #error_ax = buttons["error_button"].ax
+            #pos = error_ax.get_position()
+            ax_pressure = fig.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
             buttons["error_pressure"] = Button(ax_pressure, "Error\nPressure")
-            buttons["error_pressure"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=0)) # stimulate IO cell 2
+            buttons["error_pressure"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 2
 
         # Error Button for Thumb
         if "error_thumb" not in buttons:
-            error_ax = buttons["error_button"].ax
-            pos = error_ax.get_position()
-            ax_thumb = error_ax.figure.add_axes([pos.x0 + (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            #error_ax = buttons["error_button"].ax
+            #pos = error_ax.get_position()
+            ax_thumb = fig.add_axes([pos.x0 + (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=1)) # stimulate IO cell 0
+            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
-            error_ax = buttons["error_button"].ax
-            pos = error_ax.get_position()
-            ax_index = error_ax.figure.add_axes([pos.x0 + 2* (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            #error_ax = buttons["error_button"].ax
+            #pos = error_ax.get_position()
+            ax_index = fig.add_axes([pos.x0 + 2* (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
-            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(cell_nr=2)) # stimulate IO cell 1
-    
-    buttons["error_button"].ax.set_visible(True if control_time == 0 else False)
+            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=2)) # stimulate IO cell 1
+
+    # Change visibility of error buttons
+    try:
+        buttons["error_button"].ax.set_visible(True if control_time == 0 else False)
+    except Exception: None
     try:
         buttons["error_thumb"].ax.set_visible(False if control_time == 0 else True)
+    except Exception: None
+    try:
         buttons["error_index"].ax.set_visible(False if control_time == 0 else True)
-    except KeyError:
-        None
+    except Exception: None
+    try:
+        buttons["error_pressure"].ax.set_visible(False if control_time == 0 else True)
+    except Exception: None
 
 # Toggle between manual and automatic mode
 def toggle_mode(event=None):
@@ -737,7 +759,7 @@ def toggle_mode(event=None):
                 if p_id is not None:
                     if p_id.gid is not environment[state]:
                         print(f"PC{p_id.gid+1} not desired, triggering error")
-                        update_inferior_olive_stimulation_and_plots() # automatically trigger error
+                        update_inferior_olive_stimulation_and_plots(cell_nr=0) # automatically trigger error
                 if mode == 0:
                     break
 
@@ -1282,7 +1304,7 @@ def update_spike_and_weight_plot():
     if "error_button" not in buttons:
         error_ax = fig.add_axes([x_pos, y_pos, width, height_button])
         buttons["error_button"] = Button(error_ax, "Error")
-        buttons["error_button"].on_clicked(update_inferior_olive_stimulation_and_plots)
+        buttons["error_button"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0))
         y_pos += height_button
 
     # Run Button
