@@ -60,7 +60,7 @@ def init_variables(reset_all=True):
         fig.clf()
     except NameError: # Create figure
         plt.ion()  # Turn on interactive mode
-        fig = plt.figure(layout="tight", figsize=[11,7])
+        fig = plt.figure(layout="constrained", figsize=[11,7])
     
     gs, ax_network, ax_plots, ax_buttons = None, None, None, None
     animations = []
@@ -130,19 +130,19 @@ def init_variables(reset_all=True):
     cf_initial_weight = 0.5 # Climbing fiber initial weight
     basket_initial_weight = 0.1 # Basket to Purkinje weight
     max_weight = 0.1
-    min_weight = 0.01
+    min_weight = 0.00001
     stimuli = []
     frequency = 50 # Hz
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
     processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
 
     # --- Learning Parameters ---
-    tau_plus = 20  
-    tau_minus = 20  
-    A_plus = 0.005  
-    A_minus = 0.005
-    dt_LTP = 10  # Time window for LTP (ms)
-    dt_LTD = -10  # Time window for LTD (ms)
+    tau_plus = 1 
+    tau_minus = 1.5
+    A_plus = 0.05  
+    A_minus = 0.05
+    #dt_LTP = 10  # Time window for LTP (ms)
+    #dt_LTD = -10  # Time window for LTD (ms)
 
     # --- HW Paramaters ---
     if 'board' not in locals() and 'board' not in globals():
@@ -315,8 +315,9 @@ def activate_highest_weight_PC(granule_gid):
 
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
+        print(f"PC{purkinje.gid+1} voltage: {v_purkinje_np[purkinje.gid][-1]}")
         try:
-            if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 50 mV
+            if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 55 mV
                 continue # Skip the blocked Purkinje cell
         except (NameError, IndexError):
             continue
@@ -434,7 +435,7 @@ def stimulate_granule_cell():
     g_id = state
     
     stim = h.IClamp(granule_cells[g_id].soma(0.5))
-    stim.delay = 1/frequency*1000 * (iter + 1/2)
+    stim.delay = 1/frequency*1000 * (iter + 1/3)
     stim.dur = 1
     stim.amp = 0.5
     stimuli.append(stim)
@@ -603,7 +604,7 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         plt.pause(4)
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
-    #run_simulation(error=True)
+    run_simulation(error=True)
     
     if buttons["network_button"].label.get_text() == "Hide network":
         update_weights_in_network()
@@ -735,8 +736,8 @@ def toggle_mode(event=None):
             for i in range(10):
                 update_granule_stimulation_and_plots()
                 if p_id is not None:
-                    if p_id.gid is not environment[state]:
-                        print(f"PC{p_id.gid+1} not desired, triggering error")
+                    if p_id is not environment[state]:
+                        print(f"PC{p_id+1} not desired, triggering error")
                         update_inferior_olive_stimulation_and_plots() # automatically trigger error
                 if mode == 0:
                     break
@@ -1044,13 +1045,14 @@ def reset(event=None, reset_all=True):
     update_spike_and_weight_plot()
 
 # --- STDP Update Function ---
-def update_weights(pre_gid, post_gid, delta_t, t):
-    if delta_t > 0 and delta_t < dt_LTP:  
+def update_weights(pre_gid, post_gid, pre_t, post_t):
+    delta_t = post_t - pre_t # time between presynaptic spike and postsynaptic spike
+    if delta_t > 0:#and delta_t < dt_LTP:  
         dw = A_plus * np.exp(-delta_t / tau_plus)
-        print(f"[{iter}] LTP: GC{pre_gid+1} <-> PC{post_gid+1}")
-    elif delta_t < 0 and delta_t > dt_LTD:  
+        if dw > 0.00001: print(f"[{iter}] LTP: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
+    elif delta_t < 0:# and delta_t > dt_LTD:  
         dw = -A_minus * np.exp(delta_t / tau_minus)
-        print(f"[{iter}] LTD: GC{pre_gid+1} <-> PC{post_gid+1}")
+        if dw < 0.00001: print(f"[{iter}] LTD: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
     else: dw = 0
     new_weight = weights[(pre_gid, post_gid)] + dw
     weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
@@ -1110,7 +1112,6 @@ def run_simulation(error=False):
             # --- Trigger Purkinje Cell Spike ---
             for g_id in range(num_granule):
                 for pre_t in granule_spikes[g_id]:
-                    #if pre_t > h.t -1:
                     if pre_t > stop_time - 1/frequency*1000: # timespan between last GC stimulation
                         if (pre_t) not in processed_GC_spikes[(g_id)]:
                             processed_GC_spikes[g_id].add((pre_t))
@@ -1121,9 +1122,8 @@ def run_simulation(error=False):
                     for pre_t in granule_spikes[g_id]:
                         for post_t in purkinje_spikes[p_id]:
                             if (pre_t, post_t) not in processed_pairs[(g_id, p_id)]:
-                                delta_t = post_t - pre_t
                                 #print(f"update weights for GC{g_id+1} <-> PC{p_id+1} pre_t {pre_t} post_t {post_t}")
-                                update_weights(g_id, p_id, delta_t, h.t)
+                                update_weights(g_id, p_id, pre_t, post_t)
                                 processed_pairs[(g_id, p_id)].add((pre_t, post_t))
 
                     # Track the weight at the current time step
@@ -1200,7 +1200,7 @@ def update_spike_and_weight_plot():
                     except IndexError: None
 
                     # --- Spiking Plot for GC and its connected PCs ---
-                    ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}")
+                    ax1.plot(t_np, v_purkinje_np[purkinje.gid], label=f"PC{purkinje.gid+1}{text_blocked}", color=colors_purkinje[purkinje.gid])
 
                     # --- Weight Plot for GC to all connected PCs ---
                     if len(weights_over_time[(granule.gid, purkinje.gid)]) > 0:
