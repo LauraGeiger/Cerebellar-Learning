@@ -51,7 +51,7 @@ def init_variables(reset_all=True):
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
     global num_granule, num_purkinje, num_inferior_olive, num_basket, num_dcn, granule_cells, purkinje_cells, inferior_olive_cells, basket_cells
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
-    global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, max_weight, min_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
+    global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
     global tau_plus, tau_minus, A_plus, A_minus, dt_LTP, dt_LTD
     global board, pc_air_pressure_mapping, pc_inflation_time_mapping
 
@@ -129,8 +129,6 @@ def init_variables(reset_all=True):
     pf_initial_weight = 0.01 # Parallel fiber initial weight
     cf_initial_weight = 0.5 # Climbing fiber initial weight
     basket_initial_weight = 0.1 # Basket to Purkinje weight
-    max_weight = 0.1
-    min_weight = 0.00001
     stimuli = []
     frequency = 50 # Hz
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
@@ -141,8 +139,6 @@ def init_variables(reset_all=True):
     tau_minus = 1.5
     A_plus = 0.05  
     A_minus = 0.05
-    #dt_LTP = 10  # Time window for LTP (ms)
-    #dt_LTD = -10  # Time window for LTD (ms)
 
     # --- HW Paramaters ---
     if 'board' not in locals() and 'board' not in globals():
@@ -315,7 +311,6 @@ def activate_highest_weight_PC(granule_gid):
 
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
-        print(f"PC{purkinje.gid+1} voltage: {v_purkinje_np[purkinje.gid][-1]}")
         try:
             if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 55 mV
                 continue # Skip the blocked Purkinje cell
@@ -460,6 +455,8 @@ def update_granule_stimulation_and_plots(event=None):
     except KeyError: None
     buttons["error_button"].color = "0.85"
 
+    run_simulation(error=True)
+
 
     g_id = state
     activate_highest_weight_PC(g_id)
@@ -495,7 +492,7 @@ def update_granule_stimulation_and_plots(event=None):
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids, g_ids))
         animations.append(ani)
         plt.pause(4)
-        
+    
     stimulate_granule_cell()
     run_simulation()
     iter += 1
@@ -603,10 +600,9 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         plt.pause(4)
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
-    run_simulation(error=True)
     
-    if buttons["network_button"].label.get_text() == "Hide network":
-        update_weights_in_network()
+    #if buttons["network_button"].label.get_text() == "Hide network":
+    #    update_weights_in_network()
     
     update_spike_and_weight_plot()
 
@@ -790,7 +786,7 @@ def toggle_network_graph(event=None):
 
     update_spike_and_weight_plot()
 
-def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=2):
+def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=0.01):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
     purkinje_drawing = []
 
@@ -862,20 +858,17 @@ def calculate_dcn_x_positions(purkinje_x, num_dcn):
 
     return dcn_x
 
-
 def update_weights_in_network():
     global ax_network, purkinje_drawing
 
-    width = 0.3
-
     # --- Normalize Triangle Widths ---
-    min_w, max_w = min_weight, max_weight
+    min_w, max_w = min(weights.values()), max(weights.values())
     triangle_widths = np.empty((num_granule, num_purkinje))
 
     if max_w > min_w:
         for g in range(num_granule):
             for p in range(num_purkinje):
-                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) / 4
+                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) * (max_w - min_w) * 10
     else:
         triangle_widths.fill(0.5)
 
@@ -898,7 +891,6 @@ def update_weights_in_network():
 
 def show_network_graph():
     global ax_network, purkinje_drawing
-    global min_weight, max_weight
     global height, width, granule_x, purkinje_x, olive_x, basket_x, dcn_x, granule_y, purkinje_y, olive_y, basket_y, dcn_y
 
     purkinje_drawing = []
@@ -917,18 +909,6 @@ def show_network_graph():
     olive_y = np.linspace(-0.9*height, -0.5*height, num_inferior_olive)
     basket_y = purkinje_y 
     dcn_y = -1.3*height
-
-    # --- Define and Normalize Line Widths ---
-    line_widths = np.empty((num_granule, num_purkinje))
-    if max_weight > min_weight:  # Avoid division by zero
-        for g in range(num_granule):
-            for p in range(num_purkinje):
-                line_widths[g,p] = (weights[(g,p)] - min_weight) / (max_weight - min_weight)
-    else:
-        for g in range(num_granule):
-            for p in range(num_purkinje):
-                line_widths[g,p] = 2  # Default width if all weights are the same
-
 
     # Draw Inferior Olive cell
     for inferior_olive in inferior_olive_cells:
@@ -954,7 +934,7 @@ def show_network_graph():
         for inferior_olive in inferior_olive_cells: 
             if cf_ncs[inferior_olive.gid][purkinje.gid] is not None:  # Check if CF synapse exists
                 draw_climbing_fiber(ax_network, purkinje_x[purkinje.gid], olive_y[inferior_olive.gid], purkinje_y, width=width)  # Climbing fibers
-        drawing = draw_purkinje(ax_network, purkinje_x[purkinje.gid], purkinje_y, width=width, height=height, color=colors_purkinje[purkinje.gid], line_width=line_widths[:, purkinje.gid])
+        drawing = draw_purkinje(ax_network, purkinje_x[purkinje.gid], purkinje_y, width=width, height=height, color=colors_purkinje[purkinje.gid])
         purkinje_drawing.append(drawing)
 
     # Draw Deep Cerebellar Nuclei
@@ -1069,17 +1049,17 @@ def reset(event=None, reset_all=True):
 # --- STDP Update Function ---
 def update_weights(pre_gid, post_gid, pre_t, post_t):
     delta_t = post_t - pre_t # time between presynaptic spike and postsynaptic spike
-    if delta_t > 0:#and delta_t < dt_LTP:  
+    if delta_t > 0: 
         dw = A_plus * np.exp(-delta_t / tau_plus)
-        if dw > 0.00001: print(f"[{iter}] LTP: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
-    elif delta_t < 0:# and delta_t > dt_LTD:  
+        if dw > 0.001: print(f"[{iter}] LTP: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
+    elif delta_t < 0:
         dw = -A_minus * np.exp(delta_t / tau_minus)
-        if dw < 0.00001: print(f"[{iter}] LTD: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
+        if dw < -0.001: print(f"[{iter}] LTD: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
     else: dw = 0
     new_weight = weights[(pre_gid, post_gid)] + dw
-    weights[(pre_gid, post_gid)] = np.clip(new_weight, min_weight, max_weight)
+    weights[(pre_gid, post_gid)] = new_weight
     # Update netcon weight
-    pf_ncs[pre_gid][post_gid].weight[0] = np.clip(new_weight, min_weight, max_weight)
+    pf_ncs[pre_gid][post_gid].weight[0] = new_weight
     
 def recording():
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
