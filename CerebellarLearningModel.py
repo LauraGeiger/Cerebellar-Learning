@@ -758,9 +758,9 @@ def toggle_mode(event=None):
             for i in range(10):
                 update_granule_stimulation_and_plots()
                 if p_id is not None:
-                    if p_id.gid is not environment[state]:
-                        print(f"PC{p_id.gid+1} not desired, triggering error")
-                        update_inferior_olive_stimulation_and_plots(cell_nr=0) # automatically trigger error
+                    if p_id is not environment[state]:
+                        print(f"PC{p_id+1} not desired, triggering error")
+                        update_inferior_olive_stimulation_and_plots() # automatically trigger error
                 if mode == 0:
                     break
 
