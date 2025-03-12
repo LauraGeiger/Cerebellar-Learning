@@ -44,7 +44,8 @@ class BasketCell:
         self.soma.insert('hh')
 
 def init_variables(reset_all=True):
-    global fig, gs, ax_network, ax_plots, ax_buttons, animations, purkinje_drawing
+    """Initialize global variables"""
+    global fig, gs, ax_network, ax_plots, gs_buttons, animations, purkinje_drawing
     global iter, buttons, state, mode, control_HW, control_time, mode_dict, hw_dict, control_dict, environment, DCN_names
     global colors_purkinje, color_granule, color_inferior_olive, color_basket, color_dcn, color_simple_spike, color_complex_spike, color_error
     global height, width, granule_x, purkinje_x, olive_x, basket_x, dcn_x, granule_y, purkinje_y, olive_y, basket_y, dcn_y
@@ -52,17 +53,21 @@ def init_variables(reset_all=True):
     global num_granule, num_purkinje, num_inferior_olive, num_basket, num_dcn, granule_cells, purkinje_cells, inferior_olive_cells, basket_cells
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
     global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
-    global tau_plus, tau_minus, A_plus, A_minus, dt_LTP, dt_LTD
+    global tau_plus, tau_minus, A_plus, A_minus
     global board, pc_air_pressure_mapping, pc_inflation_time_mapping
 
     # --- Plotting ---
     try: # Reset figure
-        fig.clf()
-    except NameError: # Create figure
+        for widget in buttons.values():
+            widget.disconnect_events()  # Disconnect event listeners
+            del widget  # Delete the widget instance
+        for ax in fig.get_axes():
+            ax.remove()  # Remove the axis
+    except Exception: # Create figure
         plt.ion()  # Turn on interactive mode
         fig = plt.figure(layout="constrained", figsize=[11,7])
-    
-    gs, ax_network, ax_plots, ax_buttons = None, None, None, None
+
+    gs, ax_network, ax_plots, gs_buttons = None, None, None, None
     animations = []
     purkinje_drawing = []
 
@@ -149,22 +154,22 @@ def init_variables(reset_all=True):
     pc_air_pressure_mapping = {i: air_pressures[i] for i in range(num_purkinje)} # Maps each Purkinje Cell to a specific PWM value to control the air compressor
     min_inflation_time = 2 # Minimum inflation time in seconds
     max_inflation_time = 6 # Maximum inflation time in seconds
-    half_size = (num_purkinje + 1) // 2
-    inflation_times = np.linspace(min_inflation_time, max_inflation_time, half_size)
-    pc_inflation_time_mapping = {i: inflation_times[i % half_size] for i in range(num_purkinje)} # Maps each Purkinje Cell to a specific inflation time to control the valves
+    group_size = (num_purkinje + 1) // num_dcn
+    inflation_times = np.linspace(min_inflation_time, max_inflation_time, group_size)
+    pc_inflation_time_mapping = {i: inflation_times[i % group_size] for i in range(num_purkinje)} # Maps each Purkinje Cell to a specific inflation time to control the valves
     
-
 def init_HW():
+    """Initializes Arduino board"""
     global board, PushB1_pin, PushB2_pin, PushB3_pin, PushB4_pin, PushB5_pin, POT1_pin, POT2_pin, COMP_pin, PS1_pin, PS2_pin, PS1_voltage, PS2_voltage, Servo1_pin, Servo2_pin, Servo3_pin, Servo4_pin
     global Servo1_OUTLET, Servo1_INLET, Servo1_HOLD, Servo2_OUTLET, Servo2_INLET, Servo2_HOLD, Servo3_OUTLET, Servo3_INLET, Servo3_HOLD, Servo4_OUTLET, Servo4_INLET, Servo4_HOLD
     global PushB1_val_old, PushB2_val_old, PushB3_val_old, PushB4_val_old, PushB5_val_old 
     #########################################
     # Upload StandardFirmata.ino to Arduino #
     #########################################
-
+    port = "COM8" # change if needed
     # Open serial connection to Arduino
     if board is None:
-        board = PyMata3(com_port="COM8")
+        board = PyMata3(com_port=port)
     
     # --- Pin Declaration --- 
     # Push Buttons
@@ -248,6 +253,7 @@ def init_HW():
     board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def create_connections():
+    """Create synapses between the cells and initialize weights"""
     global weights
 
     # Granule → Purkinje Connections (excitatory)
@@ -298,6 +304,7 @@ def create_connections():
             inh_ncs[basket.gid][purkinje.gid] = nc
 
 def activate_highest_weight_PC(granule_gid):
+    """Activate the PC with the highest weight (that is not blocked)"""
     global inh_syns, inh_ncs, stimuli
 
     # Initialize dictionaries for max_weights and active Purkinje cells
@@ -341,6 +348,7 @@ def activate_highest_weight_PC(granule_gid):
                 cf_ncs[inferior_olive.gid][purkinje.gid].weight[0] = new_cf_weight
     
 def release_actuator():
+    """Releases air from tubes"""
     # Config servo pins
     board.servo_config(Servo1_pin)
     board.servo_config(Servo2_pin) 
@@ -360,10 +368,9 @@ def release_actuator():
     board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def control_actuator(pressure=200, time_thumb=5, time_index=6):
-
-    print(f"Controlling air compressor with {pressure} ({int(pressure/255.0*100)}%)")
-    print(f"Inflating thumb for {time_thumb}s")
-    print(f"Inflating index finger for {time_index}s")
+    """ Control air compressor and valves via Arduino board"""
+    
+    print(f"Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb {time_thumb:.1f}s Index finger {time_index:.1f}s")
     
     board.servo_config(Servo1_pin) # Flexion - Thumb
     board.servo_config(Servo2_pin) # Extension - Thumb
@@ -426,7 +433,7 @@ def control_actuator(pressure=200, time_thumb=5, time_index=6):
     board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
 def stimulate_granule_cell():
-    # --- Stimulate Granule Cells Based on State ---
+    """Stimulate Granule Cells Based on State"""
     g_id = state
     
     stim = h.IClamp(granule_cells[g_id].soma(0.5))
@@ -444,20 +451,26 @@ def stimulate_granule_cell():
         stimuli.append(basket_stim)
 
 def update_granule_stimulation_and_plots(event=None):
+    """Stimulates one granule cell and updates the plots and controls the HW (if enabled)"""
     global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, iter, ax_network, animations
-
 
     # Change color of error buttons to default color
     try:
         buttons["error_thumb"].color = "0.85"
+    except KeyError: None
+    try:
         buttons["error_index"].color = "0.85"
+    except KeyError: None
+    try:
         buttons["error_pressure"].color = "0.85"
     except KeyError: None
-    buttons["error_button"].color = "0.85"
+    try:
+        buttons["error_button"].color = "0.85"
+    except KeyError: None
 
     run_simulation(error=True)
 
-
+    # Activate PC with highest weight
     g_id = state
     activate_highest_weight_PC(g_id)
 
@@ -518,7 +531,7 @@ def update_granule_stimulation_and_plots(event=None):
             print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
         except Exception as e:
             print(f"Not able to read pressure sensor values: {e}")
-
+        
         if control_time == 0: # Control air pressure
             air_pressure = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
             control_actuator(pressure=air_pressure)
@@ -543,8 +556,8 @@ def update_granule_stimulation_and_plots(event=None):
         except Exception as e:
             print(f"Not able to read pressure sensor values: {e}")
 
-# Stimulate Inferior Olive if previous activated PC resulted in an error
 def stimulate_inferior_olive_cell(i_id=0):
+    """Stimulate Inferior Olive"""
     stim = h.IClamp(inferior_olive_cells[i_id].soma(0.5))
     stim.delay = h.t
     stim.dur = 5
@@ -552,6 +565,7 @@ def stimulate_inferior_olive_cell(i_id=0):
     stimuli.append(stim)
 
 def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
+    """Stimulates a inferior olive and updates the plots"""
     global buttons, animations
     # Change color of pressed error button to red
     if control_time == 0: # Control air pressure
@@ -601,13 +615,10 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
     
-    #if buttons["network_button"].label.get_text() == "Hide network":
-    #    update_weights_in_network()
-    
     update_spike_and_weight_plot()
 
-# Update state variable
 def update_state(event):
+    """Update state variable"""
     global state, buttons
     for i in range(3):
         if buttons["state_button"].value_selected == f"State {i+1}":
@@ -620,8 +631,8 @@ def update_state(event):
 
     update_spike_and_weight_plot()
 
-# Toggle between simulation of controlling HW
 def toggle_HW(event=None):
+    """Toggle between simulation of controlling HW"""
     global control_HW
 
     control_HW = next(i for i, value in hw_dict.items() if value == buttons["hardware_button"].value_selected)
@@ -636,8 +647,8 @@ def toggle_HW(event=None):
     else:
         release_actuator()
 
-# Toggle between controlling air pressure and inflation time
 def toggle_control(event=None):
+    """Toggle between controlling air pressure and inflation time"""
     global control_time, buttons
     global num_inferior_olive, num_purkinje, num_dcn
 
@@ -661,79 +672,50 @@ def toggle_control(event=None):
         init_HW()
 
     # Change activation of error buttons
-    try:
+    if control_time == 0:
+        buttons["error_button"].connect_events()
+        gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,1,1,1])
+    else:
         buttons["error_button"].disconnect_events()
-    except Exception: None
-    try:
-        buttons["error_thumb"].disconnect_events()
-    except Exception: None
-    try:
-        buttons["error_index"].disconnect_events()
-    except Exception: None
-    try:
-        buttons["error_pressure"].disconnect_events()
-    except Exception: None
-
-    pos = buttons["error_button"].ax.get_position()
+        buttons["error_button"].ax.cla()
+        buttons["error_button"].ax.axis("off")
+        gs_error = gs_buttons[6].subgridspec(1, num_dcn)
+        gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,2,1,1])
 
     if control_time == 1: # Control inflation time, one inferior_olive needed for each finger
         # Error Button for Thumb
         if "error_thumb" not in buttons:
-            #error_ax = buttons["error_button"].ax
-            #pos = error_ax.get_position()
-            ax_thumb = fig.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
+            ax_thumb = fig.add_subplot(gs_error[0], label="error_thumb")
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
             buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
-            #error_ax = buttons["error_button"].ax
-            #pos = error_ax.get_position()
-            ax_index = fig.add_axes([pos.x0 + (pos.x1 - pos.x0) / 2, pos.y0, (pos.x1 - pos.x0) / 2, pos.y1 - pos.y0])
+            ax_index = fig.add_subplot(gs_error[1], label="error_index")
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
             buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 1
     
     elif control_time == 2: # Control air pressure & inflation time
         # Error Button for Air Pressure
         if "error_pressure" not in buttons:
-            #error_ax = buttons["error_button"].ax
-            #pos = error_ax.get_position()
-            ax_pressure = fig.add_axes([pos.x0, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            ax_pressure = fig.add_subplot(gs_error[0], label="error_pressure")
             buttons["error_pressure"] = Button(ax_pressure, "Error\nPressure")
             buttons["error_pressure"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 2
 
         # Error Button for Thumb
         if "error_thumb" not in buttons:
-            #error_ax = buttons["error_button"].ax
-            #pos = error_ax.get_position()
-            ax_thumb = fig.add_axes([pos.x0 + (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            ax_thumb = fig.add_subplot(gs_error[1], label="error_thumb")
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
             buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
-            #error_ax = buttons["error_button"].ax
-            #pos = error_ax.get_position()
-            ax_index = fig.add_axes([pos.x0 + 2* (pos.x1 - pos.x0) / 3, pos.y0, (pos.x1 - pos.x0) / 3, pos.y1 - pos.y0])
+            ax_index = fig.add_subplot(gs_error[2], label="error_index")
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
             buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=2)) # stimulate IO cell 1
 
-    # Change visibility of error buttons
-    try:
-        buttons["error_button"].ax.set_visible(True if control_time == 0 else False)
-    except Exception: None
-    try:
-        buttons["error_thumb"].ax.set_visible(False if control_time == 0 else True)
-    except Exception: None
-    try:
-        buttons["error_index"].ax.set_visible(False if control_time == 0 else True)
-    except Exception: None
-    try:
-        buttons["error_pressure"].ax.set_visible(False if control_time == 0 else True)
-    except Exception: None
-
-# Toggle between manual and automatic mode
 def toggle_mode(event=None):
+    """Toggle between manual and automatic mode"""
     global state, mode, mode_dict
 
     mode = next(i for i, value in mode_dict.items() if value == buttons["automatic_button"].value_selected)
@@ -773,17 +755,19 @@ def toggle_mode(event=None):
         buttons["automatic_button"].set_active(0)
 
 def toggle_network_graph(event=None):
-    global buttons, ax_network
+    global buttons, ax_network, gs
     if buttons["network_button"].label.get_text() == "Hide network":
         buttons["network_button"].label.set_text("Show network")
         ax_network.cla() # clear network plot
         ax_network.axis("off")
         gs.set_height_ratios([0.1, 1])
+        gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,2,1,1])
     else:
         buttons["network_button"].label.set_text("Hide network")
-        show_network_graph()
         gs.set_height_ratios([0.9, 1])
-
+        gs_buttons.set_height_ratios([2,2,2,2.5,2.5,1,2,1,1])
+        show_network_graph()
+        
     update_spike_and_weight_plot()
 
 def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=0.01):
@@ -838,6 +822,7 @@ def draw_climbing_fiber(ax, x, y_start, y_end, width=0.3):
         ax.plot(x_vals, y_vals, color=color_inferior_olive, lw=1, label="Climbing Fiber")
 
 def calculate_dcn_x_positions(purkinje_x, num_dcn):
+    """Calculated the x positions of Deep Cerebellar Nuclei"""
     dcn_x = []
 
     # Split the purkinje_x into equal segments and compute the middle points
@@ -859,6 +844,7 @@ def calculate_dcn_x_positions(purkinje_x, num_dcn):
     return dcn_x
 
 def update_weights_in_network():
+    """Updated the weights in the network as increasing or decreasing triangles"""
     global ax_network, purkinje_drawing
 
     # --- Normalize Triangle Widths ---
@@ -890,6 +876,7 @@ def update_weights_in_network():
     plt.pause(1)
 
 def show_network_graph():
+    """Shows the biologically inspired network graph of cerebellar cells and connections"""
     global ax_network, purkinje_drawing
     global height, width, granule_x, purkinje_x, olive_x, basket_x, dcn_x, granule_y, purkinje_y, olive_y, basket_y, dcn_y
 
@@ -956,7 +943,7 @@ def show_network_graph():
             ax_network.plot([purkinje_x[start_idx], purkinje_x[end_idx-1]], [purkinje_y-height, purkinje_y-height], color=color_dcn, lw=2, label=f'Segment {i+1}')
 
     # Labels
-    ax_network.text(purkinje_x[0] - 0.4, purkinje_y - 0.5, "Purkinje\nCells", fontsize=10, color=colors_purkinje[0])
+    ax_network.text(purkinje_x[0] - 0.35, purkinje_y - 0.5, "Purkinje\nCells", fontsize=10, color=colors_purkinje[0])
     for purkinje in purkinje_cells:
         ax_network.text(purkinje_x[purkinje.gid] - 0.1, purkinje_y - 0.2, f"PC{purkinje.gid+1}", fontsize=10, color=colors_purkinje[purkinje.gid])
     ax_network.text(granule_x[0] - 0.1, granule_y - 0.4, "Granule Cells", fontsize=10, color=color_granule)
@@ -977,6 +964,7 @@ def show_network_graph():
     plt.pause(1)
 
 def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
+    """Spike animation for simple spikes and complex spikes"""
     # Animation parameters
     total_steps = 30  # Total frames in animation
     segment_steps = total_steps // 3  # Frames per segment
@@ -1026,6 +1014,7 @@ def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
     return spikes  # Return all updated spikes
 
 def reset(event=None, reset_all=True):
+    """Resets the program"""
     global t, iter
 
     h.finitialize(-65)
@@ -1046,12 +1035,12 @@ def reset(event=None, reset_all=True):
     iter += 1
     update_spike_and_weight_plot()
 
-# --- STDP Update Function ---
 def update_weights(pre_gid, post_gid, pre_t, post_t):
+    """STDP Update Function"""
     delta_t = post_t - pre_t # time between presynaptic spike and postsynaptic spike
     if delta_t > 0: 
         dw = A_plus * np.exp(-delta_t / tau_plus)
-        if dw > 0.001: print(f"[{iter}] LTP: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
+        if dw > 0.001: print(f"[{iter}] LTP: dw= {dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
     elif delta_t < 0:
         dw = -A_minus * np.exp(delta_t / tau_minus)
         if dw < -0.001: print(f"[{iter}] LTD: dw={dw:.3f} GC{pre_gid+1} <-> PC{post_gid+1}")
@@ -1062,9 +1051,9 @@ def update_weights(pre_gid, post_gid, pre_t, post_t):
     pf_ncs[pre_gid][post_gid].weight[0] = new_weight
     
 def recording():
+    """Records Spiking Activity and Voltages"""
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket
 
-    # --- Record Spiking Activity and Voltages---
     t.record(h._ref_t)  # Reattach to NEURON's time
 
     granule_spikes = {i: h.Vector() for i in range(num_granule)}
@@ -1096,6 +1085,7 @@ def recording():
     h.finitialize(-65) # Set all membrane potentials to -65mV
     
 def run_simulation(error=False):
+    """Runs the simulation for one iteration and tracks the weights"""
     global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes
     global iter, spike_times, processed_GC_spikes, processed_pairs, frequency, weights_over_time
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
@@ -1153,20 +1143,20 @@ def run_simulation(error=False):
     v_basket_np =        np.array([vec.to_python() for vec in v_basket.values()])
 
 def update_spike_and_weight_plot():
+    """Updates the plots for the spikes and weights (one weight plot per DCN) and the buttons"""
     global t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
-    global buttons, fig, gs, ax_network, ax_plots, ax_buttons
+    global buttons, fig, gs, ax_network, ax_plots, gs_buttons
 
-    if gs == None or ax_network == None or ax_plots == None or ax_buttons == None:
+    if gs == None or ax_network == None or ax_plots == None:
         try:
-            gs = GridSpec(2, 1 + num_dcn + 1, figure = fig, width_ratios=(1+num_purkinje//5)*[1] + [num_purkinje*0.1 if num_purkinje*0.1 > 0.65 else 0.65], height_ratios=[0.1, 1])
+            gs = GridSpec(2, 1 + num_dcn + 1, figure=fig, width_ratios=(1+num_purkinje // (num_purkinje//num_dcn))*[1] + [0.35 * num_dcn], height_ratios=[0.1, 1])
         except AttributeError: None
-        ax_network = fig.add_subplot(gs[0, :])
+        ax_network = fig.add_subplot(gs[0, :], label="ax_network")
         ax_network.axis("off")
         ax_plots = [None for _ in range(1 + num_dcn)]
-        for col in range(1 + num_purkinje // 5):
-            ax_plots[col] = fig.add_subplot(gs[1, col])
-        ax_buttons = fig.add_subplot(gs[1, -1])
-        ax_buttons.axis("off")
+        for col in range(1 + num_purkinje // (num_purkinje//num_dcn)):
+            ax_plots[col] = fig.add_subplot(gs[1, col], label=f"ax_plots[{col}]")
+        gs_buttons = gs[1, -1].subgridspec(9, 1, height_ratios=(1,2,2,2.5,2.5,1,1,1,1))
     else:
         # Clear previous plots
         for col in range(1 + num_dcn):
@@ -1257,70 +1247,54 @@ def update_spike_and_weight_plot():
             legend_height_second_row = 1/20 * (len(labels_second_row) * (height + spacing) - spacing) / ncol_second_legend
 
     # --- Buttons ---
-    pos = ax_buttons.get_position()
-    width = pos.x1 - pos.x0 - 0.01  
-    height = pos.y1 - pos.y0
-    x_pos = 1 - (pos.x1 - pos.x0)
-    y_pos = 0.01
-    height_button = 0.07 * height 
-    height_radio_button_2 = 0.09 * height 
-    height_radio_button_3 = 0.14 * height 
 
     # Reset Button
     if "reset_button" not in buttons:
-        reset_ax = fig.add_axes([x_pos, y_pos, width, height_button])
+        reset_ax = fig.add_subplot(gs_buttons[8], label="reset_button")
         buttons["reset_button"] = Button(reset_ax, "Reset")
         buttons["reset_button"].on_clicked(reset)
-        y_pos += height_button
 
     # Network Button
     if "network_button" not in buttons:
-        network_ax = fig.add_axes([x_pos, y_pos, width, height_button])
+        network_ax = fig.add_subplot(gs_buttons[7], label="network_button")
         buttons["network_button"] = Button(network_ax, "Show network")
         buttons["network_button"].on_clicked(toggle_network_graph)
-        y_pos += height_button
 
     # Error Button
     if "error_button" not in buttons:
-        error_ax = fig.add_axes([x_pos, y_pos, width, height_button])
+        error_ax = fig.add_subplot(gs_buttons[6], label="error_button")
         buttons["error_button"] = Button(error_ax, "Error")
         buttons["error_button"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0))
-        y_pos += height_button
 
     # Run Button
     if "run_button" not in buttons:
-        run_ax = fig.add_axes([x_pos, y_pos, width, height_button])
+        run_ax = fig.add_subplot(gs_buttons[5], label="run_button")
         buttons["run_button"] = Button(run_ax, f"Run iteration {iter}")
         buttons["run_button"].on_clicked(update_granule_stimulation_and_plots)
-        y_pos += height_button
 
     # State Button
     if "state_button" not in buttons:
-        state_ax = fig.add_axes([x_pos, y_pos, width, height_radio_button_3])
+        state_ax = fig.add_subplot(gs_buttons[4], label="state_button")
         buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
         buttons["state_button"].on_clicked(update_state)
-        y_pos += height_radio_button_3
 
     # Control Button
     if "control_button" not in buttons:
-        hardware_ax = fig.add_axes([x_pos, y_pos, width, height_radio_button_3])
-        buttons["control_button"] = RadioButtons(hardware_ax, (control_dict[0], control_dict[1], control_dict[2]), active=control_time)
+        control_ax = fig.add_subplot(gs_buttons[3], label="control_button")
+        buttons["control_button"] = RadioButtons(control_ax, (control_dict[0], control_dict[1], control_dict[2]), active=control_time)
         buttons["control_button"].on_clicked(toggle_control)
-        y_pos += height_radio_button_3
 
     # Hardware Button
     if "hardware_button" not in buttons:
-        hardware_ax = fig.add_axes([x_pos, y_pos, width, height_radio_button_2])
+        hardware_ax = fig.add_subplot(gs_buttons[2], label="hardware_button")
         buttons["hardware_button"] = RadioButtons(hardware_ax, (hw_dict[0], hw_dict[1]), active=control_HW)
         buttons["hardware_button"].on_clicked(toggle_HW)
-        y_pos += height_radio_button_2
 
     # Automatic Button
     if "automatic_button" not in buttons:
-        automatic_ax = fig.add_axes([x_pos, y_pos, width, height_radio_button_2])
+        automatic_ax = fig.add_subplot(gs_buttons[1], label="automatic_button")
         buttons["automatic_button"] = RadioButtons(automatic_ax, (mode_dict[0], mode_dict[1]), active=mode)
         buttons["automatic_button"].on_clicked(toggle_mode)
-        y_pos += height_radio_button_2
 
     plt.draw()
     plt.pause(1)
@@ -1333,7 +1307,7 @@ def main(reset=True):
     create_connections()
     recording()
 
-    #h.topology()
+    #h.topology() # prints topology of network
     
     run_simulation()
     iter += 1

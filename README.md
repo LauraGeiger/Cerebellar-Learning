@@ -28,8 +28,10 @@ Hint: Code tested with Python 3.10.16.
 Upload the "StandardFirmata.ino" file to the Arduino.
 
 Run "Arduino_HelloWorld.py" to check functionality of the toolkit.
+Hint: change port (e.g. port = "COM8") to match your computer
 
 Run "CerebellarLearningModel.py" and modify the settings in the GUI.
+Hint: change port (e.g. port = "COM8") to match your computer
 
 ## Authors
 * **Laura Geiger** [git](https://github.com/LauraGeiger)
