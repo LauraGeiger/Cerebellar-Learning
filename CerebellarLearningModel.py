@@ -7,6 +7,7 @@ from matplotlib.widgets import Button
 from matplotlib.widgets import RadioButtons
 from matplotlib.gridspec import GridSpec
 import time
+import serial
 
 from pymata_aio.pymata3 import PyMata3
 from pymata_aio.constants import Constants
@@ -54,7 +55,7 @@ def init_variables(reset_all=True):
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
     global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
     global tau_plus, tau_minus, A_plus, A_minus
-    global board, pc_air_pressure_mapping, pc_inflation_time_mapping
+    global board, serial_con, pc_air_pressure_mapping, pc_inflation_time_mapping
 
     # --- Plotting ---
     try: # Reset figure
@@ -78,7 +79,7 @@ def init_variables(reset_all=True):
     if reset_all == True: mode = 0                            # 0: manual, 1: automatic
     if reset_all == True: control_HW = 0                      # 0: simulation, 1: control HW
     if reset_all == True: control_time = 0                    # 0: control air pressure, 1: control time
-    mode_dict = {0:"Manual", 1:"Auto"}
+    mode_dict = {0:"Manual Feedback", 1:"Sensor Feedback"}
     hw_dict = {0:"Simulation", 1:"Control HW"}
     control_dict = {0:"Air pressure", 1:"Inflation time", 2:"Pressure & Time"}
     environment = {0 : 0, 1 : 2, 2 : 4} # "state : PC_ID" --> environment maps object_ID/state to the desired Purkinje Cell
@@ -146,8 +147,10 @@ def init_variables(reset_all=True):
     A_minus = 0.05
 
     # --- HW Paramaters ---
-    if 'board' not in locals() and 'board' not in globals():
+    if 'board' not in globals():
         board = None # Init board only once
+    if 'serial_con' not in globals():
+        serial_con = None # Init serial connection only once
     min_air_pressure = 150 # Minimum PWM value to control air compressor
     max_air_pressure = 255 # Minimum PWM value to control air compressor
     air_pressures = np.linspace(min_air_pressure, max_air_pressure, num_purkinje)
@@ -636,10 +639,6 @@ def toggle_HW(event=None):
     global control_HW
 
     control_HW = next(i for i, value in hw_dict.items() if value == buttons["hardware_button"].value_selected)
-
-    # Deactivate automatic mode when controlling HW
-    buttons["automatic_button"].ax.set_visible(True if control_HW == 0 else False)
-    time.sleep(0.2)
  
     # Initialize HW
     if control_HW == 1:
@@ -716,31 +715,86 @@ def toggle_control(event=None):
 
 def toggle_mode(event=None):
     """Toggle between manual and automatic mode"""
-    global state, mode, mode_dict
+    global serial_con, state, mode, mode_dict
 
     mode = next(i for i, value in mode_dict.items() if value == buttons["automatic_button"].value_selected)
 
     # Toggle button visibilities
-    buttons["run_button"].ax.set_visible(True if mode == 0 else False)
-    buttons["error_button"].ax.set_visible(True if mode == 0 else False)
-    buttons["network_button"].ax.set_visible(True if mode == 0 else False)
-    buttons["reset_button"].ax.set_visible(True if mode == 0 else False)
+    #buttons["run_button"].ax.set_visible(True if mode == 0 else False)
+    #buttons["error_button"].ax.set_visible(True if mode == 0 else False)
+    #buttons["network_button"].ax.set_visible(True if mode == 0 else False)
+    #buttons["reset_button"].ax.set_visible(True if mode == 0 else False)
 
-    # Trigger error automatically
+    
+    if mode == 1: # Trigger error automatically based on sensor feedback
+        # Disable run button and error buttons
+        buttons["run_button"].disconnect_events()
+        if control_time == 0:
+            buttons["error_button"].disconnect_events()
+        elif control_time == 1:
+            buttons["error_thumb"].disconnect_events()
+            buttons["error_index"].disconnect_events()
+        elif control_time == 2:
+            buttons["error_pressure"].disconnect_events()
+            buttons["error_thumb"].disconnect_events()
+            buttons["error_index"].disconnect_events()
+        
+        # Open the serial connection to ESP32 (adjust COMx port or /dev/ttyUSBx)
+        if serial_con is None:
+            serial_con = serial.Serial('COM11', 115200, timeout=1)  # Adjust port if needed
+
+        for i in range(10):
+            time.sleep(2)
+            update_granule_stimulation_and_plots()
+            b_id = 0
+            p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            if p_id is not None:
+                while True:
+                    time.sleep(1)
+                    print("Waiting for sensor feedback ...")
+                    serial_con.flushInput()
+
+                    line = serial_con.readline().decode().strip()  # Read a line and decode it
+                    if line:
+                        try:
+                            sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
+                            [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
+                            print(f"R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} ")
+                            
+                            if T1 > 0 and T2 > 0:
+                                break
+                            elif any (value > 0 for value in [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5]):
+                                print(f"PC{p_id+1} not desired, triggering error")
+                                update_inferior_olive_stimulation_and_plots() # automatically trigger error
+                                break
+                        except Exception: None
+            if mode == 0:
+                break
+
+    else: # Trigger error manually via error buttons
+        # Disable run button and error buttons
+        buttons["run_button"].connect_events()
+        if control_time == 0:
+            buttons["error_button"].connect_events()
+        elif control_time == 1:
+            buttons["error_thumb"].connect_events()
+            buttons["error_index"].connect_events()
+        elif control_time == 2:
+            buttons["error_pressure"].connect_events()
+            buttons["error_thumb"].connect_events()
+            buttons["error_index"].connect_events()
+
+    '''
     if mode == 1: # automatic mode
         # Identify active purkinje cells
         b_id = 0
         if control_time == 0: # Control air pressure
             p_id = next((purkinje.gid for purkinje in purkinje_cells if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-
-            for i in range(10):
-                update_granule_stimulation_and_plots()
-                if p_id is not None:
-                    if p_id is not environment[state]:
-                        print(f"PC{p_id+1} not desired, triggering error")
-                        update_inferior_olive_stimulation_and_plots() # automatically trigger error
-                if mode == 0:
-                    break
+            update_granule_stimulation_and_plots()
+            if p_id is not None:
+                if p_id is not environment[state]:
+                    print(f"PC{p_id+1} not desired, triggering error")
+                    update_inferior_olive_stimulation_and_plots() # automatically trigger error
 
         elif control_time == 1: # Control inflation time
             p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//2] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
@@ -753,6 +807,7 @@ def toggle_mode(event=None):
             print("Automatic mode not available in this setting.")
 
         buttons["automatic_button"].set_active(0)
+    '''
 
 def toggle_network_graph(event=None):
     global buttons, ax_network, gs

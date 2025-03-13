@@ -8,8 +8,8 @@ try:
         line = ser.readline().decode().strip()  # Read a line and decode it
         if line:
             sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-            #print("Sensor Values:", sensor_values)
-            print(f"R1={sensor_values[0]} L1={sensor_values[1]} R2={sensor_values[2]} L2={sensor_values[3]} R3={sensor_values[4]} L3={sensor_values[5]} R4={sensor_values[6]} L4={sensor_values[7]} R5={sensor_values[8]} L5={sensor_values[9]} T1={sensor_values[10]} T2={sensor_values[11]} ")
+            [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
+            print(f"R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} ")
 except KeyboardInterrupt:
     print("Exiting...")
     ser.close()
