@@ -12,11 +12,11 @@ Its effectiveness is demonstrated in both simulated and physical environments.
 The model is implemented using the **NEURON** simulation platform.
 
 ## Prerequisites
-Ensure **NEURON** is installed by following the official guide: [NEURON Installation Guide](https://www.neuron.yale.edu/neuron/download).
+Ensure **NEURON** is installed by following the official guide: 
 
 Additionally, install the following dependencies:
 
-* Python **>= 3.7** (Tested with Python **3.10.16**)
+* Python **>= 3.7** (**Note:** Tested with Python **3.10.16**)
 * `numpy`
 * `matplotlib`
 * `pymata-aio`
@@ -26,11 +26,37 @@ Install dependencies using:
 pip install numpy matplotlib pymata-aio
 ```
 
-Hint: Code 
+## Installation
+To set up the project on your local machine, follow these steps:  
+1. Clone the repository:
+```
+git clone https://github.com/LauraGeiger/Cerebellar-Learning.git
+cd Cerebellar-Learning
+```
+2. Optional: Create a virtual environment
+```
+python -m venv venv
+source venv/bin/activate  # On macOS/Linux
+venv\Scripts\activate     # On Windows
+```
+3. Install the following dependencies:
+* Python **>= 3.7** (**Note:** Tested with Python **3.10.16**)
+* `numpy`
+* `matplotlib`
+* `pymata-aio`
+Install dependencies using:
+```
+pip install numpy matplotlib pymata-aio
+```
+4. Ensure **NEURON** is installed: [NEURON Installation Guide](https://www.neuron.yale.edu/neuron/download).
 
 ## Usage
 ### Simulation Only
-1. Run `CerebellarLearningModel.py`.
+1. Run `CerebellarLearningModel.py`:
+```
+python .\CerebellarLearningModel.py
+```
+
 2. Modify settings using the GUI.
 
 ### With HW Control
@@ -38,9 +64,15 @@ Hint: Code
 2. Upload the `StandardFirmata.ino` file to the **Arduino**.
 3. Optional: Run `Arduino_HelloWorld.py` to check toolkit functionality.
     **Note:** Change port (e.g. port = "COM8") to match your computer.
+    ```
+    python .\Arduino_HelloWorld.py
+    ```
 4. Run `CerebellarLearningModel.py`.
     **Note:** Change port (e.g. port = "COM8") to match your computer.
+    ```
+    python .\CerebellarLearningModel.py
+    ```
 5. Modify settings using the GUI.
 
 ## Authors
-* **Laura Geiger** [git](https://github.com/LauraGeiger)
+* **Laura Geiger** → [git](https://github.com/LauraGeiger)
