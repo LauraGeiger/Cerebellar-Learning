@@ -46,7 +46,7 @@ Install dependencies using:
 ### With HW Control
 1. Connect to the **Soft Robotics Edu. Toolkit** designed by John Nassour.
 2. Upload the `StandardFirmata.ino` file to the **Arduino**.
-3. Optional: Run `Arduino_HelloWorld.py` to check toolkit functionality.
+3. Optional: Run `Arduino_SoftRoboticsEduToolkit.py` to check toolkit functionality.
     **Note:** Change port (e.g. port = "COM8") to match your computer.
     ```
     python .\Arduino_HelloWorld.py

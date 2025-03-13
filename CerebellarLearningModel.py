@@ -286,7 +286,7 @@ def create_connections():
             syn.tau2 = 25 # Synaptic decay time
             cf_syns[inferior_olive.gid][purkinje.gid] = syn
             nc = h.NetCon(inferior_olive.soma(0.5)._ref_v, syn, sec=inferior_olive.soma)
-            nc.weight[0] = cf_initial_weight
+            nc.weight[0] = 0
             nc.delay = 0
             cf_ncs[inferior_olive.gid][purkinje.gid] = nc
 
@@ -1166,8 +1166,8 @@ def update_spike_and_weight_plot():
     for col in range(1 + num_dcn): 
         if col > 0:
             ax_plots[col].sharex(ax_plots[0])  # Share x-axis with first column
-        elif col > 1:
-            ax_plots[col].sharey(ax_plots[1])  # Share y-axis with first column
+        if col > 1:
+            ax_plots[col].sharey(ax_plots[1])  # Share y-axis with second column
 
     for granule in granule_cells:
         if granule.gid == state:
