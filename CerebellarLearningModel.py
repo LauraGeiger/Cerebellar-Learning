@@ -456,7 +456,7 @@ def hold(inflation_time=1, pressure=200):
 
     time_thumb_flexion = inflation_time
     time_index_flexion = inflation_time
-    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s Thumb Opposition {time_thumb_opposition:.1f}s")
+    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s")
     control_actuator(pressure, time_thumb_flexion, time_index_flexion)
     
 
