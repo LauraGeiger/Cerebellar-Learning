@@ -47,7 +47,7 @@ class BasketCell:
 def init_variables(reset_all=True):
     """Initialize global variables"""
     global fig, gs, ax_network, ax_plots, gs_buttons, animations, purkinje_drawing
-    global iter, buttons, state, mode, control_HW, control, mode_dict, hw_dict, control_dict, DCN_names
+    global iter, buttons, state, mode, control_HW, control, mode_dict, hw_dict, control_dict, state_dict, state_grasp_hold_dict, DCN_names
     global colors_purkinje, color_granule, color_inferior_olive, color_basket, color_dcn, color_simple_spike, color_complex_spike, color_error, color_error_hover, color_run, color_run_hover
     global height, width, granule_x, purkinje_x, olive_x, basket_x, dcn_x, granule_y, purkinje_y, olive_y, basket_y, dcn_y
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
@@ -55,7 +55,7 @@ def init_variables(reset_all=True):
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
     global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
     global tau_plus, tau_minus, A_plus, A_minus
-    global board, pc_air_pressure_mapping, pc_inflation_time_mapping, serial_con, required_force
+    global board, pc_air_pressure_mapping, pc_inflation_time_mapping, serial_con
 
     # --- Plotting ---
     try: # Reset figure
@@ -75,14 +75,16 @@ def init_variables(reset_all=True):
     # --- GUI and Control ---
     iter = 0
     buttons = {}
-    if reset_all == True: state = 1                           # 0: activated granule cell 0, 1: activated granule cell 1, 2: activated granule cell 2
+    if reset_all == True: state = 2                           # 1: light obj (GC0), 2: medium obj (GC1), 3: heavy obj (GC2) 
     if reset_all == True: mode = 0                            # 0: manual, 1: automatic
     if reset_all == True: control_HW = 0                      # 0: simulation, 1: control HW
     if reset_all == True: control = 0                         # 0: control air pressure, 1: control time of thumb & index finger, 2: control air pressure and time of thumb & index finger, 3: grasp & hold
     mode_dict = {0:"Manual Feedback", 1:"Sensor Feedback"}
     hw_dict = {0:"Simulation", 1:"Control HW"}
     control_dict = {0:"Air pressure", 1:"Inflation time", 2:"Pressure & Time", 3:"Grasp & Hold"}
-    DCN_names = ["Air Pressure", "Timing Thumb Flexion", "Timing Index Finger Flexion", "Timing Thumb Opposition", "Timing Flexion Holding"]
+    state_dict = {1: "Light obj.", 2: "Medium obj.", 3: "Heavy obj."}
+    state_grasp_hold_dict = {0: "Grasp obj.", 1: "Grasp & hold light obj.", 2: "Grasp & hold medium obj.", 3: "Grasp & hold heavy obj."}
+    DCN_names = ["Air Pressure", "Timing Thumb Flexion", "Timing Index Finger Flexion", "Timing Thumb Opposition", "Timing Holding Flexion"]
     
     # --- Colors ---
     colors_purkinje = ["steelblue", "darkorange", "mediumseagreen", "crimson", "gold",
@@ -136,7 +138,7 @@ def init_variables(reset_all=True):
     weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
     pf_initial_weight = 0.01 # Parallel fiber initial weight
     cf_initial_weight = 0.5 # Climbing fiber initial weight
-    basket_initial_weight = 0.1 # Basket to Purkinje weight
+    basket_initial_weight = 0.5#0.1 # Basket to Purkinje weight
     stimuli = []
     frequency = 50 # Hz
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
@@ -164,7 +166,6 @@ def init_variables(reset_all=True):
     # --- Sensor board ---
     if 'serial_con' not in globals():
         serial_con = None # Init serial connection only once
-    required_force = {0 : 1, 1 : 40, 2 : 80} # "state : required force in %"
     
 def init_HW():
     """Initializes Arduino board"""
@@ -265,15 +266,16 @@ def create_connections():
     global weights
 
     # Granule → Purkinje Connections (excitatory)
-    for granule in granule_cells:
-        for purkinje in purkinje_cells:
+    for purkinje in purkinje_cells:
+        random_weight = np.random.uniform(0,0.001)
+        for granule in granule_cells:
             syn = h.Exp2Syn(purkinje.soma(0.5))
             syn.e = 0 # Excitatory
             syn.tau1 = 1 # Synaptic rise time
             syn.tau2 = 5 # Synaptic decay time
             pf_syns[granule.gid][purkinje.gid] = syn
             nc = h.NetCon(granule.soma(0.5)._ref_v, syn, sec=granule.soma)
-            nc.weight[0] = pf_initial_weight + np.random.uniform(0,0.001)
+            nc.weight[0] = pf_initial_weight + random_weight
             nc.delay = 0
             pf_ncs[granule.gid][purkinje.gid] = nc
             weights[(granule.gid, purkinje.gid)] = nc.weight[0]
@@ -334,14 +336,13 @@ def activate_highest_weight_PC(granule_gid):
 
         weight = pf_ncs[granule_gid][purkinje.gid].weight[0]
 
-        group_size = control + 1
-        for i in range(group_size):
-            if purkinje.gid >= i * num_purkinje//group_size and purkinje.gid < (i+1) * num_purkinje//group_size:
+        for i in range(num_dcn if state > 0 else num_dcn - 1):
+            if purkinje.gid >= i * num_purkinje//num_dcn and purkinje.gid < (i+1) * num_purkinje//num_dcn:
                 get_active_purkinje(purkinje, weight, i)
 
     # Set inhibition and climbing fiber weights for all Purkinje cells
     for purkinje in purkinje_cells:
-        is_active = purkinje in active_purkinje#_set  # Check if the Purkinje cell is active
+        is_active = purkinje in active_purkinje # Check if the Purkinje cell is active
 
         # Set inhibition and climbing fiber weights
         new_inh_weight = 0 if is_active else basket_initial_weight
@@ -363,11 +364,11 @@ def release_actuator():
     board.servo_config(Servo3_pin)
     board.servo_config(Servo4_pin) 
     # Set servos to outlet position to let air out
-    board.analog_write(Servo1_pin, Servo1_OUTLET) # First release flexion
-    board.analog_write(Servo3_pin, Servo3_OUTLET) # First release flexion
+    board.analog_write(Servo1_pin, Servo1_OUTLET) # Release flexion thumb
+    board.analog_write(Servo2_pin, Servo2_OUTLET) # Release flexion index finger
     board.sleep(1)
-    board.analog_write(Servo2_pin, Servo2_OUTLET) # Then release extension
-    board.analog_write(Servo4_pin, Servo4_OUTLET) # Then release extension
+    board.analog_write(Servo3_pin, Servo3_OUTLET) # Release opposition & extension thumb 
+    board.analog_write(Servo4_pin, Servo4_OUTLET) # Release extension index finger
     board.sleep(1)
     # Reset servo pins
     board.set_pin_mode(Servo1_pin, Constants.INPUT)
@@ -444,20 +445,19 @@ def grasp(time_thumb_flexion=5, time_index_flexion=6, time_thumb_opposition=5, p
     """Grasp object with variable timing for thumb and index finger flexion and thumb opposition"""
 
     # Constant extension time of 1s for thumb and index finger
-    time_thumb_extension = 1
-    time_index_extension = 1
+    time_thumb_extension = time_thumb_opposition
+    time_index_extension = 0.5
 
     print(f"GRASPING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s Thumb Opposition {time_thumb_opposition:.1f}s")
-    control_actuator(pressure, time_thumb_flexion, time_index_flexion, time_thumb_opposition, time_thumb_extension, time_index_extension)
+    control_actuator(pressure=pressure, time_thumb_flexion=time_thumb_flexion, time_index_flexion=time_index_flexion, time_thumb_opposition=time_thumb_opposition, time_thumb_extension=time_thumb_extension, time_index_extension=time_index_extension)
     
 
 def hold(inflation_time=1, pressure=200):
     """Hold object with variable inflation_time, higher inflation_time correlates to higher force during holding"""
 
-    time_thumb_flexion = inflation_time
     time_index_flexion = inflation_time
-    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s")
-    control_actuator(pressure, time_thumb_flexion, time_index_flexion)
+    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation time: Index Finger Flexion {time_index_flexion:.1f}s")
+    control_actuator(pressure=pressure, time_index_flexion=time_index_flexion)
     
 
 def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=None, time_thumb_opposition=None, time_thumb_extension=None, time_index_extension=None):
@@ -469,12 +469,13 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
     if time_index_flexion is not None:
         board.servo_config(Servo2_pin) # Flexion - Index Finger
         board.analog_write(Servo2_pin, Servo2_INLET)
-    if time_thumb_opposition is not None:
-        board.servo_config(Servo3_pin) # Opposition - Thumb
-        board.analog_write(Servo3_pin, Servo3_INLET)
     if time_thumb_extension is not None and time_index_extension is not None:
-        board.servo_config(Servo4_pin) # Extension - Thumb & Index finger
+        board.servo_config(Servo3_pin) # Opposition % Extension - Thumb
+        board.analog_write(Servo3_pin, Servo3_INLET)
+    if time_thumb_opposition is not None:
+        board.servo_config(Servo4_pin) # Extension - Index finger
         board.analog_write(Servo4_pin, Servo4_INLET)
+    
     board.sleep(2)
 
     if pressure is not None:
@@ -500,10 +501,6 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
     while True:
         elapsed_time = time.time() - start_time  # Calculate elapsed time
 
-        if time_thumb_extension is not None and elapsed_time >= time_thumb_extension and not executed["stop_thumb_extension"]:
-            board.analog_write(Servo4_pin, Servo4_HOLD)  # Stop extension - Thumb
-            executed["stop_thumb_extension"] = True
-
         if time_index_extension is not None and elapsed_time >= time_index_extension and not executed["stop_index_extension"]:
             board.analog_write(Servo4_pin, Servo4_HOLD)  # Stop extension - Index
             executed["stop_index_extension"] = True
@@ -517,8 +514,9 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
             executed["stop_index_flexion"] = True
         
         if time_thumb_opposition is not None and elapsed_time >= time_thumb_opposition and not executed["stop_thumb_opposition"]:
-            board.analog_write(Servo3_pin, Servo3_HOLD)  # Stop flexion - Index
+            board.analog_write(Servo3_pin, Servo3_HOLD)  # Stop opposition & extension - Thumb
             executed["stop_thumb_opposition"] = True
+            executed["stop_thumb_extension"] = True
 
         # Exit loop once all actions are completed
         if elapsed_time >= total_inflation_time:
@@ -533,21 +531,25 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
         board.set_pin_mode(Servo1_pin, Constants.INPUT)
     if time_index_flexion is not None:
         board.set_pin_mode(Servo2_pin, Constants.INPUT)
-    if time_thumb_opposition is not None:
-        board.set_pin_mode(Servo3_pin, Constants.INPUT)
     if time_thumb_extension is not None and time_index_extension is not None:
+        board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    if time_thumb_opposition is not None:
         board.set_pin_mode(Servo4_pin, Constants.INPUT)
     
-
 def stimulate_granule_cell():
     """Stimulate Granule Cells Based on State"""
-    g_id = state
+    print(f"state {state}")
+    if state > 0:
+        g_ids = [state-1] 
+    else:
+        g_ids = [g_id for g_id in range(num_granule)]
     
-    stim = h.IClamp(granule_cells[g_id].soma(0.5))
-    stim.delay = 1/frequency*1000 * (iter + 1/3)
-    stim.dur = 1
-    stim.amp = 0.5
-    stimuli.append(stim)
+    for g_id in g_ids:
+        stim = h.IClamp(granule_cells[g_id].soma(0.5))
+        stim.delay = 1/frequency*1000 * (iter + 1/3)
+        stim.dur = 1
+        stim.amp = 0.5
+        stimuli.append(stim)
 
     # Send inhibitory signals to all purkinje cells expect active_purkinje
     for basket in basket_cells:
@@ -563,6 +565,16 @@ def update_granule_stimulation_and_plots(event=None):
 
     # Change color of error buttons to default color
     try:
+        buttons["error_button"].color = "0.85"
+        buttons["error_button"].hovercolor = "0.975"
+        buttons["error_button"].ax.figure.canvas.draw_idle()  # Force redraw
+    except KeyError: None
+    try:
+        buttons["error_pressure"].color = "0.85"
+        buttons["error_pressure"].hovercolor = "0.975"
+        buttons["error_pressure"].ax.figure.canvas.draw_idle()  # Force redraw
+    except KeyError: None
+    try:
         buttons["error_thumb"].color = "0.85"
         buttons["error_thumb"].hovercolor = "0.975"
         buttons["error_thumb"].ax.figure.canvas.draw_idle()  # Force redraw
@@ -573,14 +585,14 @@ def update_granule_stimulation_and_plots(event=None):
         buttons["error_index"].ax.figure.canvas.draw_idle()  # Force redraw
     except KeyError: None
     try:
-        buttons["error_pressure"].color = "0.85"
-        buttons["error_pressure"].hovercolor = "0.975"
-        buttons["error_pressure"].ax.figure.canvas.draw_idle()  # Force redraw
+        buttons["error_opposition"].color = "0.85"
+        buttons["error_opposition"].hovercolor = "0.975"
+        buttons["error_opposition"].ax.figure.canvas.draw_idle()  # Force redraw
     except KeyError: None
     try:
-        buttons["error_button"].color = "0.85"
-        buttons["error_button"].hovercolor = "0.975"
-        buttons["error_button"].ax.figure.canvas.draw_idle()  # Force redraw
+        buttons["error_holding"].color = "0.85"
+        buttons["error_holding"].hovercolor = "0.975"
+        buttons["error_holding"].ax.figure.canvas.draw_idle()  # Force redraw
     except KeyError: None
     #plt.draw()
     #plt.gcf().canvas.draw_idle()
@@ -592,7 +604,7 @@ def update_granule_stimulation_and_plots(event=None):
     run_simulation(error=True)
 
     # Activate PC with highest weight
-    g_id = state
+    g_id = (state - 1) % num_granule # choose one GC for calculation and plotting
     activate_highest_weight_PC(g_id)
 
     # Identify active purkinje cells
@@ -616,13 +628,17 @@ def update_granule_stimulation_and_plots(event=None):
     if buttons["network_button"].label.get_text() == "Hide network":
         # Run simple spike animation
         spikes = []
-        g_ids = []
-        for i in range(control + 1):
-            spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
-            spikes.append(spike)
-            g_ids.append(g_id)
+        if state > 0:
+            g_ids = [state-1] 
+        else:
+            g_ids = [g_id for g_id in range(num_granule)]
+        
 
-        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids, g_ids))
+        for g in g_ids:
+            for i in range(num_dcn):
+                spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
+                spikes.append(spike)
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
         animations.append(ani)
         plt.pause(4)
     
@@ -698,8 +714,8 @@ def update_granule_stimulation_and_plots(event=None):
 
             if remaining_time < 0:
                 if not any(errors): # If no error feedback is received before timeout, trigger randomly any error
-                    random_cell_nr = np.random.randint(control + 1)
-                    print(f"\nTimeout: triggering random error for {DCN_names[random_cell_nr if control != 1 else random_cell_nr + 1]}")
+                    random_cell_nr = np.random.randint(control + 1 if control != 3 else control)
+                    print(f"\nTimeout: triggering random error for {DCN_names[random_cell_nr + 1 if control == 1 or control == 3 else random_cell_nr]}")
                     errors[random_cell_nr] = True
                 break
             else:
@@ -739,15 +755,15 @@ def update_granule_stimulation_and_plots(event=None):
                                     errors[2] = True # trigger error at third DCN
 
                             elif control == 3:
-                                if errors[0] == False and any (value > 0 for value in [R1, R2, R3, R4, R5]): # Error in thumb movement
+                                if errors[0] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in thumb movement, Index Finger correct
                                     print(f"\nDetected error for {DCN_names[0+1]} (PC{p_ids[0]+1})")
                                     errors[0] = True # trigger error at first DCN
-                                if errors[1] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in index finger movement
+                                if errors[1] == False and any (value > 0 for value in [R3]): # Error in index finger movement, Thumb correct
                                     print(f"\nDetected error for {DCN_names[1+1]} (PC{p_ids[1]+1})")
                                     errors[1] = True # trigger error at second DCN
-                                if errors[2] == False and any (valueR > 0 for valueR in [R1, R2, R3, R4, R5]) and (valueL for valueL in [L1, L2, L3, L4, L5]): # Error in thumb opposition
+                                if errors[2] == False and any (valueR > 0 for valueR in [R1, R2, R4, R5]): # Error in thumb opposition
                                     print(f"\nDetected error for {DCN_names[2+1]} (PC{p_ids[2]+1})")
-                                    errors[1] = True # trigger error at third DCN
+                                    errors[2] = True # trigger error at third DCN
                             
                 except Exception: None
 
@@ -755,35 +771,36 @@ def update_granule_stimulation_and_plots(event=None):
             time.sleep(0.1) # small delay to prevent CPU overload
 
         if grasping:
-            if control == 3:
-                if control_HW == 1:
-                    time_flexion_holding = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
-                    hold(inflation_time=time_flexion_holding)
-            print(f"Waiting for {holding_time}s ...")
-            time.sleep(holding_time)
-            serial_con.flushInput() # delete values in serial input buffer
-            time.sleep(0.1) # small delay to prevent CPU overload
-            line = serial_con.readline().decode().strip()  # Read a line and decode it
-            if line:
-                sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
-                if T1 > 0 and T2 > 0: # Object successful grasped
-                    print(f"Object holded successful for {holding_time}s.")
-                    errors = [] # remove errors
-                else: 
-                    print(f"Object grasped but not holded for {holding_time}s.")
-                    if control == 0: # if air pressure is controlled
-                        print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
-                        errors[0] = True # trigger error for air pressure
-                    elif control == 1: # if air pressure is constant
-                        print(f"Triggering error for {DCN_names[0+1]} (PC{p_ids[0]+1}) and {DCN_names[1+1]} (PC{p_ids[1]+1})")
-                        errors[0] = True # trigger error for thumb
-                        errors[1] = True # trigger error for index finger
-                    elif control == 2: # if air pressure is controlled
-                        print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
-                        errors[0] = True # trigger error for air pressure
-                    elif control == 3: # holding force controlled via timing
-                        errors[3] = True # trigger error for flexion time of holding
+            if state != 0: # 0: grasp only, 1,2,3: grasp & hold
+                if control == 3:
+                    if control_HW == 1:
+                        time_flexion_holding = pc_inflation_time_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
+                        hold(inflation_time=time_flexion_holding)
+                print(f"Waiting for {holding_time}s ...")
+                time.sleep(holding_time)
+                serial_con.flushInput() # delete values in serial input buffer
+                time.sleep(1) # small delay to wait for new sensor values
+                line = serial_con.readline().decode().strip()  # Read a line and decode it
+                if line:
+                    sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
+                    [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
+                    if T1 > 0 and T2 > 0: # Object successful grasped
+                        print(f"Object holded successful for {holding_time}s.")
+                        errors = [] # remove errors
+                    else: 
+                        print(f"Object grasped but not holded for {holding_time}s.")
+                        if control == 0: # if air pressure is controlled
+                            print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
+                            errors[0] = True # trigger error for air pressure
+                        elif control == 1: # if air pressure is constant
+                            print(f"Triggering error for {DCN_names[0+1]} (PC{p_ids[0]+1}) and {DCN_names[1+1]} (PC{p_ids[1]+1})")
+                            errors[0] = True # trigger error for thumb
+                            errors[1] = True # trigger error for index finger
+                        elif control == 2: # if air pressure is controlled
+                            print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
+                            errors[0] = True # trigger error for air pressure
+                        elif control == 3: # holding force controlled via timing
+                            errors[3] = True # trigger error for flexion time of holding
         for i, error in enumerate(errors):
             if error:
                 update_inferior_olive_stimulation_and_plots(cell_nr=i)
@@ -901,12 +918,11 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
     
     update_spike_and_weight_plot()
 
-def update_state(event):
+def update_state(event=None):
     """Update state variable"""
-    global state, buttons
-    for i in range(3):
-        if buttons["state_button"].value_selected == f"State {i+1}":
-            state = i
+    global state
+
+    state = buttons["state_button"].index_selected if control == 3 else buttons["state_button"].index_selected + 1
             
     if buttons["network_button"].label.get_text() == "Hide network":
         ax_network.cla() # clear network plot
@@ -944,14 +960,33 @@ def toggle_control(event=None):
 
     # Change activation of error buttons
     if control == 0:
-        buttons["error_button"].connect_events()
-        gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,1,1,1])
+        try:
+            buttons["error_button"].connect_events()
+            gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,1,1,1])
+        except Exception: None
     else:
-        buttons["error_button"].disconnect_events()
-        buttons["error_button"].ax.cla()
-        buttons["error_button"].ax.axis("off")
-        gs_error = gs_buttons[6].subgridspec(1, num_dcn)
-        gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,2,1,1])
+        try:
+            buttons["error_button"].disconnect_events()
+            buttons["error_button"].ax.cla()
+            buttons["error_button"].ax.axis("off")
+            gs_error = gs_buttons[6].subgridspec(1, num_dcn)
+            gs_buttons.set_height_ratios([1,2,2,2.5,2.5,1,2,1,1])
+        except Exception: None
+    
+    # Change state labels
+    if control == 3:
+        buttons["state_button"].disconnect_events()
+        buttons["state_button"].ax.cla()
+        buttons["state_button"] = RadioButtons(buttons["state_button"].ax, list(state_grasp_hold_dict.values()), active=0)
+        buttons["state_button"].on_clicked(update_state)
+        update_state()
+    else:
+        if len(buttons["state_button"].labels) == 4:
+            buttons["state_button"].disconnect_events()
+            buttons["state_button"].ax.cla()
+            buttons["state_button"] = RadioButtons(buttons["state_button"].ax, list(state_dict.values()), active=1)
+            buttons["state_button"].on_clicked(update_state)
+            update_state()
 
     if control == 1: # Control inflation time, one inferior_olive needed for each finger
         # Error Button for Thumb
@@ -1122,7 +1157,7 @@ def update_weights_in_network():
     if max_w > min_w:
         for g in range(num_granule):
             for p in range(num_purkinje):
-                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) * (max_w - min_w) * 10
+                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) * (max_w - min_w) * 2
     else:
         triangle_widths.fill(0.5)
 
@@ -1177,7 +1212,7 @@ def show_network_graph():
     
     # Draw Granule cells, vertical axons, and parallel fibers
     for granule in granule_cells:
-        if granule.gid == state:
+        if state == 0 or granule.gid == state-1:
             transparency = 1
         else:
             transparency = 0.5
@@ -1224,9 +1259,11 @@ def show_network_graph():
     ax_network.text(purkinje_x[-1] + 0.15, olive_y[-1] + abs(purkinje_y - olive_y[-1]) / 2, "Climbing Fibers (CF)", fontsize=10, color=color_inferior_olive)
     ax_network.text(basket_x + 0.1, basket_y, "Basket Cell (BC)", fontsize=10, color=color_basket)
     for i in range(num_dcn):
-        ax_network.text(dcn_x[i] + 0.1, dcn_y, f"DCN{i+1}\n'{DCN_names[i + 1 if num_dcn == 2 else i]}'", fontsize=10, color=color_dcn)
+        ax_network.text(dcn_x[i] + 0.1, dcn_y, f"DCN{i+1}\n'{DCN_names[i + 1 if num_dcn == 2 or num_dcn == 4 else i]}'", fontsize=10, color=color_dcn)
 
     ax_network.set_xlim([0.0,6.0])
+
+    update_weights_in_network()
 
     plt.draw()
     plt.pause(1)
@@ -1460,17 +1497,18 @@ def update_spike_and_weight_plot():
             ax_plots[col].sharey(ax_plots[1])  # Share y-axis with second column
 
     for granule in granule_cells:
-        if granule.gid == state:
+
+        if granule.gid == (state-1) % num_granule:
             ax1 = ax_plots[0]
             ax1.set_title(f"Spiking Activity")
-            ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1}", color=color_granule, linestyle="dashed")
+            ax1.plot(t_np, v_granule_np[granule.gid], label=f"GC{granule.gid+1 if state > 0 else ''}", color=color_granule, linestyle="dashed")
             ax1.set_xlabel("Time (ms)") 
             ax1.set_ylabel("Membrane Voltage (mV)")
     
 
             for i in range(num_dcn):
                 ax2 = ax_plots[1 + i]
-                ax2.set_title(f"Synaptic Weights\n'{DCN_names[i + 1 if num_dcn == 2 else i]}'")
+                ax2.set_title(f"Synaptic Weights\n'{DCN_names[i + 1 if num_dcn == 2 or num_dcn == 4 else i]}'")
                 ax2.set_xlabel("Time (ms)")
                 ax2.set_ylabel("Synaptic Weight")
 
@@ -1565,7 +1603,7 @@ def update_spike_and_weight_plot():
     # State Button
     if "state_button" not in buttons:
         state_ax = fig.add_subplot(gs_buttons[4], label="state_button")
-        buttons["state_button"] = RadioButtons(state_ax, ('State 1', 'State 2', 'State 3'), active=state)
+        buttons["state_button"] = RadioButtons(state_ax, list(state_dict.values()), active=state-1)
         buttons["state_button"].on_clicked(update_state)
 
     # Control Button
