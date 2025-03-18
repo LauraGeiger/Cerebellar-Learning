@@ -89,8 +89,8 @@ def init_variables(reset_all=True):
     # --- Colors ---
     colors_purkinje = ["steelblue", "darkorange", "mediumseagreen", "crimson", "gold",
     "dodgerblue", "purple", "sienna", "limegreen", "deeppink",
-    "teal", "orangered", "darkcyan", "royalblue", "darkgoldenrod",
-    "firebrick", "indigo", "tomato", "slateblue", "darkgreen"]
+    "teal", "orangered", "indigo", "royalblue", "darkgoldenrod",
+    "firebrick", "darkcyan", "tomato", "slateblue", "darkgreen"]
     color_granule = 'darkgoldenrod'
     color_inferior_olive = 'black'
     color_basket = 'darkgray'
@@ -538,7 +538,7 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
     
 def stimulate_granule_cell():
     """Stimulate Granule Cells Based on State"""
-    print(f"state {state}")
+    
     if state > 0:
         g_ids = [state-1] 
     else:
@@ -623,7 +623,8 @@ def update_granule_stimulation_and_plots(event=None):
         p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
         p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//4:2*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
         p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//4:3*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
-        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[3*num_purkinje//4:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
+        if state > 0:
+            p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[3*num_purkinje//4:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
 
     if buttons["network_button"].label.get_text() == "Hide network":
         # Run simple spike animation
@@ -714,22 +715,35 @@ def update_granule_stimulation_and_plots(event=None):
 
             if remaining_time < 0:
                 if not any(errors): # If no error feedback is received before timeout, trigger randomly any error
-                    random_cell_nr = np.random.randint(control + 1 if control != 3 else control)
-                    print(f"\nTimeout: triggering random error for {DCN_names[random_cell_nr + 1 if control == 1 or control == 3 else random_cell_nr]}")
-                    errors[random_cell_nr] = True
+                    #random_cell_nr = np.random.randint(control + 1 if control != 3 else control)
+                    #print(f"\nTimeout: triggering random error for {DCN_names[random_cell_nr + 1 if control == 1 or control == 3 else random_cell_nr]}")
+                    #errors[random_cell_nr] = True
+                    if control == 0:
+                        errors[0] = True # Only available error
+                        print(f"\nTimeout: triggering error for {DCN_names[0]}")
+                    elif control == 1:
+                        errors[1] = True # Trigger error at index finger
+                        print(f"\nTimeout: triggering error for {DCN_names[1+1]}")
+                    elif control == 2:
+                        errors[2] = True # Trigger error at index finger
+                        print(f"\nTimeout: triggering error for {DCN_names[2]}")
+                    elif control == 3:
+                        errors[1] = True # Trigger error at index finger
+                        print(f"\nTimeout: triggering error for {DCN_names[1+1]}")
                 break
             else:
                 try:
                     line = serial_con.readline().decode().strip()  # Read a line and decode it
                     if line:
                         sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                        [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
-                        print(f"\rRemaining time: {remaining_time:.0f}s | R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2}", end="", flush=True)
+                        [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2, TH, PA, MF, IF] = sensor_values # Flexsensors: Lx, Rx, Touchsensors: T1, T2, SoftTouchsensors: Th (Thumb), PA (Palm), MF (Middle Finger), IF (Index Finger)
+                        print(f"\rRemaining time: {remaining_time:.0f}s | R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} TH={TH} IF={IF}", end="", flush=True)
                         
                         if T1 > 0 and T2 > 0: # Object successful grasped
                             applied_force = (T1 + T2) / 2.0
                             print(f"\nGrasping successfull, applied force={applied_force:.1f}%")
                             grasping = True
+                            errors = [False for _ in errors] # reset any errors
                             break
 
                         else: # Grasping not successfull
@@ -774,18 +788,23 @@ def update_granule_stimulation_and_plots(event=None):
             if state != 0: # 0: grasp only, 1,2,3: grasp & hold
                 if control == 3:
                     if control_HW == 1:
-                        time_flexion_holding = pc_inflation_time_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
+                        time_flexion_holding = pc_inflation_time_mapping[p_ids[3]] if p_ids[3] is not None else 0 # look up table for purkinje cell to voltage mapping
                         hold(inflation_time=time_flexion_holding)
                 print(f"Waiting for {holding_time}s ...")
                 time.sleep(holding_time)
                 serial_con.flushInput() # delete values in serial input buffer
                 time.sleep(1) # small delay to wait for new sensor values
                 line = serial_con.readline().decode().strip()  # Read a line and decode it
+                while line.count(',') < 15:
+                    line = serial_con.readline().decode().strip()  # Read a line and decode it
+                    time.sleep(1) # small delay to wait for new sensor values
                 if line:
                     sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                    [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2] = sensor_values
+                    [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2, TH, PA, MF, IF] = sensor_values # Flexsensors: Lx, Rx, Touchsensors: T1, T2, SoftTouchsensors: Th (Thumb), PA (Palm), MF (Middle Finger), IF (Index Finger)
                     if T1 > 0 and T2 > 0: # Object successful grasped
-                        print(f"Object holded successful for {holding_time}s.")
+                        applied_force = (T1 + T2) / 2.0
+                        print(f"Holding successful, applied force={applied_force:.1f}%")
+                        print(f"R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} TH={TH} IF={IF}")
                         errors = [] # remove errors
                     else: 
                         print(f"Object grasped but not holded for {holding_time}s.")
@@ -1157,7 +1176,7 @@ def update_weights_in_network():
     if max_w > min_w:
         for g in range(num_granule):
             for p in range(num_purkinje):
-                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) * (max_w - min_w) * 2
+                triangle_widths[g, p] = (weights[(g, p)] - min_w) / (max_w - min_w) * (max_w - min_w)
     else:
         triangle_widths.fill(0.5)
 

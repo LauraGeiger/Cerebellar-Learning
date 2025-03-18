@@ -1,25 +1,37 @@
-// Define Pins
-const int potPin = 34;  // Analog Input
-const int outputPin = 15;  // Digital Output
-const int muxChannels[] = {2, 4, 5, 18};  // MUX control pins
+// Define Pins of MUX1
+const int mux1potPin = 35;  // Analog Input
+const int mux1outputPin = 19;  // Digital Output
+const int mux1Channels[] = {21, 22, 23, 32};  // MUX 1 control pins
+
+// Define Pins of MUX2
+const int mux2potPin = 34;  // Analog Input
+const int mux2outputPin = 15;  // Digital Output
+const int mux2Channels[] = {2, 4, 5, 18};  // MUX 2 control pins
+
 const int numFlexSensors = 10;
 const int numTouchSensors = 2;
-const int numSensors = numFlexSensors + numTouchSensors;
+const int numSoftTouchSensors = 4;
+const int numSensors = numFlexSensors + numTouchSensors + numSoftTouchSensors;
+const int mux1numSensors = numFlexSensors + numTouchSensors;
 const int numReadings = 10;
 
 const int thresholdFlexSensor = 100;
-const int maxTouchSensor = -4095;
+const int maxTouchSensor = 4095;
+const int maxSoftTouchSensor = 4095;
 
 int baseline[numSensors];   // To store baseline value
-int flexsens[numSensors];
+int sensors[numSensors];
 
 void setup() {
     Serial.begin(115200);
-    pinMode(outputPin, OUTPUT);
-    digitalWrite(outputPin, HIGH);
+    pinMode(mux1outputPin, OUTPUT);
+    pinMode(mux2outputPin, OUTPUT);
+    digitalWrite(mux1outputPin, HIGH);
+    digitalWrite(mux2outputPin, HIGH);
 
     for (int i = 0; i < 4; i++) {
-        pinMode(muxChannels[i], OUTPUT);
+        pinMode(mux1Channels[i], OUTPUT);
+        pinMode(mux2Channels[i], OUTPUT);
     }
 
     delay(1000);  // Wait for stability
@@ -34,57 +46,89 @@ void setup() {
 }
 
 void loop() {    
-    for (int i = 0; i < numSensors; i++) {
-        muxWrite(i);
-        digitalWrite(outputPin, LOW);
-        delay(1);
-
-        int rawValue = analogRead(potPin);
-        int normalizedValue = rawValue - baseline[i];
+    for (int s = 0; s < numSensors; s++) {
         int value = 0;
-        if (i < numFlexSensors) {
-            if (normalizedValue > thresholdFlexSensor) {
-                value = 1;
-            }
-        } 
-        else {
-            value = int(normalizedValue / float(maxTouchSensor) * 100);
-        }
-        flexsens[i] = value;
 
-        digitalWrite(outputPin, HIGH);
-        delay(1);
+        if (s < mux1numSensors) {
+            for (int i = 0; i < 4; i++) {
+                digitalWrite(mux1Channels[i], bitRead(s, i));
+            }
+
+            digitalWrite(mux1outputPin, LOW);
+            delay(1);
+
+            int rawValue = analogRead(mux1potPin);
+            
+            if (s < numFlexSensors) {
+                int normalizedValue = rawValue - baseline[s];
+                if (normalizedValue > thresholdFlexSensor) {
+                    value = 1;
+                }
+            } 
+            else {
+                value = 100 - int(rawValue / float(maxTouchSensor) * 100);
+            }
+
+            digitalWrite(mux1outputPin, HIGH);
+            delay(1);
+        }
+        else {
+            for (int i = 0; i < 4; i++) {
+                digitalWrite(mux2Channels[i], bitRead(s, i));
+            }
+
+            digitalWrite(mux2outputPin, LOW);
+            delay(1);
+
+            int rawValue = analogRead(mux2potPin);
+            value = 100 - int(rawValue / float(maxSoftTouchSensor) * 100);
+
+            digitalWrite(mux2outputPin, HIGH);
+            delay(1);
+        }
+
+        sensors[s] = value;
 
         // Send sensor values as a CSV line (comma-separated)
-        Serial.print(flexsens[i]);
-        if (i < numSensors-1) Serial.print(",");  // Add comma except for last value
+        Serial.print(sensors[s]);
+        if (s < numSensors-1) Serial.print(",");  // Add comma except for last value
     }
     Serial.println();  // Newline to mark end of data packet
 
     delay(100);
 }
 
-void muxWrite(int channel) {
-    
-    for (int i = 0; i < 4; i++) {
-        digitalWrite(muxChannels[i], bitRead(channel, i));
-    }
-}
-
 // Function to record baseline using first 10 sensor readings
 void recordBaseline() {
-    for (int i = 0; i < numSensors; i++) {
+    for (int s = 0; s < numSensors; s++) {
         int sum = 0;
-        for (int j = 0; j < numReadings; j++) {
-            muxWrite(i);
-            digitalWrite(outputPin, LOW);
-            delay(1);
+        
+        for (int nr = 0; nr < numReadings; nr++) {
+            if (s < mux1numSensors) {
+                for (int i = 0; i < 4; i++) {
+                    digitalWrite(mux1Channels[i], bitRead(s, i));
+                }
+                digitalWrite(mux1outputPin, LOW);
+                delay(1);
 
-            sum += analogRead(potPin);
-            digitalWrite(outputPin, HIGH);
-            delay(1);
+                sum += analogRead(mux1potPin);
+                digitalWrite(mux1outputPin, HIGH);
+                delay(1);
+            }
+            else {
+                for (int i = 0; i < 4; i++) {
+                    digitalWrite(mux2Channels[i], bitRead(s, i));
+                }
+                digitalWrite(mux2outputPin, LOW);
+                delay(1);
+
+                sum += analogRead(mux2potPin);
+                digitalWrite(mux2outputPin, HIGH);
+                delay(1);
+            }
         }
-        baseline[i] = int(sum / float(numReadings));  // Compute mean for this sensor
+        
+        baseline[s] = int(sum / float(numReadings));  // Compute mean for this sensor
     }
 }
 
