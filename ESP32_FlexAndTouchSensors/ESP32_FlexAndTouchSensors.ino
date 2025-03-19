@@ -15,7 +15,7 @@ const int numSensors = numFlexSensors + numTouchSensors + numSoftTouchSensors;
 const int mux1numSensors = numFlexSensors + numTouchSensors;
 const int numReadings = 10;
 
-const int thresholdFlexSensor = 100;
+const int thresholdFlexSensor = 150;
 const int maxTouchSensor = 4095;
 const int maxSoftTouchSensor = 4095;
 
@@ -81,7 +81,9 @@ void loop() {
             delay(1);
 
             int rawValue = analogRead(mux2potPin);
+            int normalizedValue = 100 - int(baseline[s] / float(maxSoftTouchSensor) * 100);
             value = 100 - int(rawValue / float(maxSoftTouchSensor) * 100);
+            //value = value - normalizedValue;
 
             digitalWrite(mux2outputPin, HIGH);
             delay(1);

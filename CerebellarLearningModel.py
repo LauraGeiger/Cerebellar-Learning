@@ -53,7 +53,7 @@ def init_variables(reset_all=True):
     global t, granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, v_granule, v_purkinje, v_inferiorOlive, v_basket, t_np, v_granule_np, v_purkinje_np, v_inferiorOlive_np, v_basket_np
     global num_granule, num_purkinje, num_inferior_olive, num_basket, num_dcn, granule_cells, purkinje_cells, inferior_olive_cells, basket_cells
     global pf_syns, pf_ncs, cf_syns, cf_ncs, inh_syns, inh_ncs
-    global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs
+    global weights, weights_over_time, pf_initial_weight, cf_initial_weight, basket_initial_weight, stimuli, frequency, processed_GC_spikes, processed_pairs, errors
     global tau_plus, tau_minus, A_plus, A_minus
     global board, pc_air_pressure_mapping, pc_inflation_time_mapping, serial_con
 
@@ -143,6 +143,7 @@ def init_variables(reset_all=True):
     frequency = 50 # Hz
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
     processed_pairs = { (pre_id, post_id): set() for pre_id in range(num_granule) for post_id in range(num_purkinje) } # store the processed spike pairs for each (pre_id, post_id)
+    errors = []
 
     # --- Learning Parameters ---
     tau_plus = 1 
@@ -376,87 +377,21 @@ def release_actuator():
     board.set_pin_mode(Servo3_pin, Constants.INPUT)
     board.set_pin_mode(Servo4_pin, Constants.INPUT)
 
-def OLD_control_actuator(pressure=200, time_thumb=5, time_index=6):
-    """ Control air compressor and valves via Arduino board"""
-    
-    print(f"Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb {time_thumb:.1f}s Index finger {time_index:.1f}s")
-    
-    board.servo_config(Servo1_pin) # Flexion - Thumb
-    board.servo_config(Servo2_pin) # Extension - Thumb
-    board.servo_config(Servo3_pin) # Flexion - Index finger
-    board.servo_config(Servo4_pin) # Extension - Index finger
-    board.analog_write(Servo1_pin, Servo1_INLET)
-    board.analog_write(Servo2_pin, Servo2_INLET)
-    board.analog_write(Servo3_pin, Servo3_INLET)
-    board.analog_write(Servo4_pin, Servo4_INLET)
-    board.sleep(2)
-
-    if pressure is not None:
-        board.analog_write(COMP_pin, int(pressure)) # Start inflation
-
-    # Determine the total inflation time
-    total_inflation_time = max(time_thumb, time_index)
-
-    # Get start time
-    start_time = time.time()
-
-    # Flags to track which actions have been executed
-    executed = {
-        "stop_thumb_extension": False,
-        "stop_index_extension": False,
-        "stop_thumb_flexion": False,
-        "stop_index_flexion": False
-    }
-
-    while True:
-        elapsed_time = time.time() - start_time  # Calculate elapsed time
-
-        if elapsed_time >= time_thumb and not executed["stop_thumb_extension"]:
-            board.analog_write(Servo2_pin, Servo2_HOLD)  # Stop extension - Thumb
-            executed["stop_thumb_extension"] = True
-
-        if elapsed_time >= time_index * 0.1 and not executed["stop_index_extension"]:
-            board.analog_write(Servo4_pin, Servo4_HOLD)  # Stop extension - Index
-            executed["stop_index_extension"] = True
-
-        if elapsed_time >= time_thumb * 0.6 and not executed["stop_thumb_flexion"]:
-            board.analog_write(Servo1_pin, Servo1_HOLD)  # Stop flexion - Thumb
-            executed["stop_thumb_flexion"] = True
-
-        if elapsed_time >= time_index and not executed["stop_index_flexion"]:
-            board.analog_write(Servo3_pin, Servo3_HOLD)  # Stop flexion - Index
-            executed["stop_index_flexion"] = True
-
-        # Exit loop once all actions are completed
-        if elapsed_time >= total_inflation_time:
-            break
-
-        time.sleep(0.01)  # Small delay to prevent CPU overload
-
-    board.analog_write(COMP_pin, 0) # Stop inflation
-
-    # Reset servo pins
-    board.set_pin_mode(Servo1_pin, Constants.INPUT)
-    board.set_pin_mode(Servo2_pin, Constants.INPUT)
-    board.set_pin_mode(Servo3_pin, Constants.INPUT)
-    board.set_pin_mode(Servo4_pin, Constants.INPUT)
-
-def grasp(time_thumb_flexion=5, time_index_flexion=6, time_thumb_opposition=5, pressure=200):
+def grasp(time_thumb_flexion=2, time_index_flexion=6, time_thumb_opposition=5, pressure=255):
     """Grasp object with variable timing for thumb and index finger flexion and thumb opposition"""
 
-    # Constant extension time of 1s for thumb and index finger
-    time_thumb_extension = time_thumb_opposition
-    time_index_extension = 0.5
+    time_thumb_extension = time_thumb_opposition # Thumb extension equivalent to thumb opposition
+    time_index_extension = 0.5 # Constant extension time for index finger
 
     print(f"GRASPING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s Thumb Opposition {time_thumb_opposition:.1f}s")
     control_actuator(pressure=pressure, time_thumb_flexion=time_thumb_flexion, time_index_flexion=time_index_flexion, time_thumb_opposition=time_thumb_opposition, time_thumb_extension=time_thumb_extension, time_index_extension=time_index_extension)
     
 
-def hold(inflation_time=1, pressure=200):
+def hold(inflation_time=1, pressure=255):
     """Hold object with variable inflation_time, higher inflation_time correlates to higher force during holding"""
-
+    
     time_index_flexion = inflation_time
-    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation time: Index Finger Flexion {time_index_flexion:.1f}s")
+    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Index Finger Flexion {time_index_flexion:.1f}s")
     control_actuator(pressure=pressure, time_index_flexion=time_index_flexion)
     
 
@@ -559,10 +494,9 @@ def stimulate_granule_cell():
         basket_stim.amp = stim.amp  # same as granule 
         stimuli.append(basket_stim)
 
-def update_granule_stimulation_and_plots(event=None):
-    """Stimulates one granule cell and updates the plots and controls the HW (if enabled)"""
-    global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, iter, ax_network, animations
-
+def change_back_error_button_colors():
+    """Changes the color of all error buttons back to default color"""
+    global buttons
     # Change color of error buttons to default color
     try:
         buttons["error_button"].color = "0.85"
@@ -594,13 +528,28 @@ def update_granule_stimulation_and_plots(event=None):
         buttons["error_holding"].hovercolor = "0.975"
         buttons["error_holding"].ax.figure.canvas.draw_idle()  # Force redraw
     except KeyError: None
-    #plt.draw()
-    #plt.gcf().canvas.draw_idle()
-    #plt.gcf().canvas.flush_events()
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
     plt.pause(1)
 
+def update_granule_stimulation_and_plots(event=None):
+    """Stimulates one granule cell and updates the plots and controls the HW (if enabled)"""
+    global granule_spikes, purkinje_spikes, inferiorOlive_spikes, basket_spikes, buttons, iter, ax_network, animations
+    global sensor_references, errors
+
+    # Apply errors
+    for i, error in enumerate(errors):
+        if error:
+            update_inferior_olive_stimulation_and_plots(cell_nr=i)
+
+    try: # change back color of "grasp successul" button
+        buttons["success_grasp"].color = "0.85"
+        buttons["success_grasp"].hovercolor = "0.975"
+        buttons["success_grasp"].ax.figure.canvas.draw_idle()  # Force redraw
+    except KeyError: None
+    change_back_error_button_colors()
+    time.sleep(0.1)
+    
     run_simulation(error=True)
 
     # Activate PC with highest weight
@@ -620,11 +569,10 @@ def update_granule_stimulation_and_plots(event=None):
         p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
         p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
     elif control == 3: # Control grasp & hold
-        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
-        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//4:2*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
-        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//4:3*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
+        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
+        p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
         if state > 0:
-            p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[3*num_purkinje//4:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
+            p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
 
     if buttons["network_button"].label.get_text() == "Hide network":
         # Run simple spike animation
@@ -636,7 +584,7 @@ def update_granule_stimulation_and_plots(event=None):
         
 
         for g in g_ids:
-            for i in range(num_dcn):
+            for p in p_ids:
                 spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
                 spikes.append(spike)
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
@@ -668,6 +616,19 @@ def update_granule_stimulation_and_plots(event=None):
             print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
         except Exception as e:
             print(f"Not able to read pressure sensor values: {e}")
+
+        if mode == 1: # sensor feedback
+            serial_con.flushInput() # delete values in serial input buffer
+            time.sleep(1)
+            line = serial_con.readline().decode().strip()  # Read a line and decode it
+            while line.count(',') < 15:
+                line = serial_con.readline().decode().strip()  # Read a line and decode it
+                time.sleep(1) # small delay to wait for new sensor values
+            if line:
+                sensor_references = list(map(int, line.split(',')))  # Convert CSV to list of integers
+                [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
+                #[FS_T1, FS_I1, FS_T2, FS_I2, FS_T3, FS_I3, FS_T4, FS_I4, FS_T5, FS_I5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
+                print(f"\rSensor reference values: FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
         
         if control == 0: # Control air pressure
             air_pressure = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
@@ -682,10 +643,9 @@ def update_granule_stimulation_and_plots(event=None):
             inflation_time_index = pc_inflation_time_mapping[p_ids[2]] if p_ids[2] is not None else 0 # look up table for purkinje cell to time mapping
             grasp(pressure=air_pressure, time_thumb_flexion=inflation_time_thumb, time_index_flexion=inflation_time_index)
         elif control == 3: # Control time for flexion and opposition
-            time_thumb_flexion = pc_inflation_time_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to time mapping
-            time_index_flexion = pc_inflation_time_mapping[p_ids[1]] if p_ids[1] is not None else 0 # look up table for purkinje cell to time mapping
-            time_thumb_opposition = pc_inflation_time_mapping[p_ids[2]] if p_ids[2] is not None else 0 # look up table for purkinje cell to time mapping
-            grasp(time_thumb_flexion=time_thumb_flexion, time_index_flexion=time_index_flexion, time_thumb_opposition=time_thumb_opposition)
+            time_index_flexion = pc_inflation_time_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to time mapping
+            time_thumb_opposition = pc_inflation_time_mapping[p_ids[1]] if p_ids[1] is not None else 0 # look up table for purkinje cell to time mapping
+            grasp(time_index_flexion=time_index_flexion, time_thumb_opposition=time_thumb_opposition)
         
         board.sleep(1)
         
@@ -714,70 +674,76 @@ def update_granule_stimulation_and_plots(event=None):
             remaining_time = timeout - (time.time() - start_time)
 
             if remaining_time < 0:
-                if not any(errors): # If no error feedback is received before timeout, trigger randomly any error
+                if not any(errors): # If no error feedback is received before timeout, trigger error at index finger (if controlled)
+                    # If no error feedback is received before timeout, trigger randomly any error
                     #random_cell_nr = np.random.randint(control + 1 if control != 3 else control)
                     #print(f"\nTimeout: triggering random error for {DCN_names[random_cell_nr + 1 if control == 1 or control == 3 else random_cell_nr]}")
                     #errors[random_cell_nr] = True
                     if control == 0:
-                        errors[0] = True # Only available error
+                        error_detected(btn_name="error_button", cell_nr=0)
                         print(f"\nTimeout: triggering error for {DCN_names[0]}")
                     elif control == 1:
-                        errors[1] = True # Trigger error at index finger
+                        error_detected(btn_name="error_index", cell_nr=1)
                         print(f"\nTimeout: triggering error for {DCN_names[1+1]}")
                     elif control == 2:
-                        errors[2] = True # Trigger error at index finger
+                        error_detected(btn_name="error_index", cell_nr=2)
                         print(f"\nTimeout: triggering error for {DCN_names[2]}")
                     elif control == 3:
-                        errors[1] = True # Trigger error at index finger
-                        print(f"\nTimeout: triggering error for {DCN_names[1+1]}")
+                        error_detected(btn_name="error_index", cell_nr=0)
+                        print(f"\nTimeout: triggering error for {DCN_names[0+2]}")
                 break
             else:
                 try:
                     line = serial_con.readline().decode().strip()  # Read a line and decode it
                     if line:
                         sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                        [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2, TH, PA, MF, IF] = sensor_values # Flexsensors: Lx, Rx, Touchsensors: T1, T2, SoftTouchsensors: Th (Thumb), PA (Palm), MF (Middle Finger), IF (Index Finger)
-                        print(f"\rRemaining time: {remaining_time:.0f}s | R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} TH={TH} IF={IF}", end="", flush=True)
+                        [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_values # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
+                        print(f"\rRemaining time: {remaining_time:.0f}s | FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}", end="", flush=True)
                         
-                        if T1 > 0 and T2 > 0: # Object successful grasped
-                            applied_force = (T1 + T2) / 2.0
+                        if TS_T > 0 and TS_I > 0: # Object successful grasped
+                            applied_force = (TS_T + TS_I) / 2.0
                             print(f"\nGrasping successfull, applied force={applied_force:.1f}%")
                             grasping = True
-                            errors = [False for _ in errors] # reset any errors
+                            grasp_successfull()
                             break
-
+                        elif (STS_T - sensor_references[-4]) > 4 and (STS_I - sensor_references[-1]) > 4: # Object successful grasped
+                            applied_force = ((STS_T - sensor_references[-4]) + (STS_I - sensor_references[-1])) / 2.0
+                            print(f"\nGrasping successfull, applied force={applied_force:.1f}% detected with soft touch sensors")
+                            grasping = True
+                            grasp_successfull()
+                            break
                         else: # Grasping not successfull
                             if control == 0:
-                                if errors[0] == False and any (value > 0 for value in [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5]): # Grasping not successfull
+                                if errors[0] == False and any (value > 0 for value in [FS_T1, FS_I1, FS_T2, FS_I2, FS_T3, FS_I3, FS_T4, FS_I4, FS_T5, FS_I5]): # Grasping not successfull
                                     print(f"\nDetected error for {DCN_names[0]} (PC{p_ids[0]+1})")
-                                    errors[0] = True # trigger error at first DCN
+                                    error_detected(btn_name="error_button", cell_nr=0)
 
                             elif control == 1:
-                                if errors[0] == False and any (value > 0 for value in [R1, R2, R3, R4, R5]): # Error in thumb movement
+                                if errors[0] == False and any (value > 0 for value in [FS_I1, FS_I2, FS_I3, FS_I4, FS_I5]): # Error in thumb movement
                                     print(f"\nDetected error for {DCN_names[0+1]} (PC{p_ids[0]+1})")
-                                    errors[0] = True # trigger error at first DCN
-                                if errors[1] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in index finger movement
+                                    error_detected(btn_name="error_thumb", cell_nr=0)
+                                if errors[1] == False and any (value > 0 for value in [FS_T1, FS_T2, FS_T3, FS_T4, FS_T5]): # Error in index finger movement
                                     print(f"\nDetected error for {DCN_names[1+1]} (PC{p_ids[1]+1})")
-                                    errors[1] = True # trigger error at second DCN
+                                    error_detected(btn_name="error_index", cell_nr=1)
                             
                             elif control == 2:
-                                if errors[1] == False and any (value > 0 for value in [R1, R2, R3, R4, R5]): # Error in thumb movement
+                                if errors[1] == False and any (value > 0 for value in [FS_I1, FS_I2, FS_I3, FS_I4, FS_I5]): # Error in thumb movement
                                     print(f"\nDetected error for {DCN_names[1]} (PC{p_ids[1]+1})")
-                                    errors[1] = True # trigger error at second DCN
-                                if errors[2] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in index finger movement
+                                    error_detected(btn_name="error_thumb", cell_nr=1)
+                                if errors[2] == False and any (value > 0 for value in [FS_T1, FS_T2, FS_T3, FS_T4, FS_T5]): # Error in index finger movement
                                     print(f"\nDetected error for {DCN_names[2]} (PC{p_ids[2]+1})")
-                                    errors[2] = True # trigger error at third DCN
+                                    error_detected(btn_name="error_index", cell_nr=2)
 
                             elif control == 3:
-                                if errors[0] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in thumb movement, Index Finger correct
-                                    print(f"\nDetected error for {DCN_names[0+1]} (PC{p_ids[0]+1})")
-                                    errors[0] = True # trigger error at first DCN
-                                if errors[1] == False and any (value > 0 for value in [R3]): # Error in index finger movement, Thumb correct
-                                    print(f"\nDetected error for {DCN_names[1+1]} (PC{p_ids[1]+1})")
-                                    errors[1] = True # trigger error at second DCN
-                                if errors[2] == False and any (valueR > 0 for valueR in [R1, R2, R4, R5]): # Error in thumb opposition
-                                    print(f"\nDetected error for {DCN_names[2+1]} (PC{p_ids[2]+1})")
-                                    errors[2] = True # trigger error at third DCN
+                                #if errors[0] == False and any (value > 0 for value in [L1, L2, L3, L4, L5]): # Error in thumb movement, Index Finger correct
+                                #    print(f"\nDetected error for {DCN_names[0+2]} (PC{p_ids[0]+1})")
+                                #    error_detected(btn_name="error_thumb", cell_nr=0)
+                                if errors[0] == False and any (value > 0 for value in [FS_T1, FS_T2, FS_T3, FS_T4, FS_T5]): # Thumb correct, Error in index finger flexion 
+                                    print(f"\nDetected error for {DCN_names[0+2]} (PC{p_ids[0]+1})")
+                                    error_detected(btn_name="error_index", cell_nr=0)
+                                if errors[1] == False and any (valueR > 0 for valueR in [FS_I1, FS_I2, FS_I3, FS_I4, FS_I5]): # Index finger correct, Error in thumb opposition
+                                    print(f"\nDetected error for {DCN_names[1+2]} (PC{p_ids[1]+1})")
+                                    error_detected(btn_name="error_opposition", cell_nr=1)
                             
                 except Exception: None
 
@@ -788,7 +754,7 @@ def update_granule_stimulation_and_plots(event=None):
             if state != 0: # 0: grasp only, 1,2,3: grasp & hold
                 if control == 3:
                     if control_HW == 1:
-                        time_flexion_holding = pc_inflation_time_mapping[p_ids[3]] if p_ids[3] is not None else 0 # look up table for purkinje cell to voltage mapping
+                        time_flexion_holding = pc_inflation_time_mapping[p_ids[-1]] if p_ids[-1] is not None else 0 # look up table for purkinje cell to voltage mapping
                         hold(inflation_time=time_flexion_holding)
                 print(f"Waiting for {holding_time}s ...")
                 time.sleep(holding_time)
@@ -800,36 +766,37 @@ def update_granule_stimulation_and_plots(event=None):
                     time.sleep(1) # small delay to wait for new sensor values
                 if line:
                     sensor_values = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                    [R1, L1, R2, L2, R3, L3, R4, L4, R5, L5, T1, T2, TH, PA, MF, IF] = sensor_values # Flexsensors: Lx, Rx, Touchsensors: T1, T2, SoftTouchsensors: Th (Thumb), PA (Palm), MF (Middle Finger), IF (Index Finger)
-                    if T1 > 0 and T2 > 0: # Object successful grasped
-                        applied_force = (T1 + T2) / 2.0
+                    [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_values # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
+                    if TS_T > 0 and TS_I > 0: # Object successful holded
+                        applied_force = (TS_T + TS_I) / 2.0
                         print(f"Holding successful, applied force={applied_force:.1f}%")
-                        print(f"R1={R1} L1={L1} R2={R2} L2={L2} R3={R3} L3={L3} R4={R4} L4={L4} R5={R5} L5={L5} T1={T1} T2={T2} TH={TH} IF={IF}")
-                        errors = [] # remove errors
+                        print(f"FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
+                        errors = [False for _ in errors] # reset all errors
+                    elif (STS_T - sensor_references[-4]) > 5 and (STS_I - sensor_references[-1]) > 5: # Object successful holded
+                        applied_force = ((STS_T - sensor_references[-4]) + (STS_I - sensor_references[-1])) / 2.0
+                        print(f"\nHolding successfull, applied force={applied_force:.1f}% detected with soft touch sensors")
+                        print(f"FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
+                        grasping = True
+                        errors = [False for _ in errors] # reset all errors
                     else: 
                         print(f"Object grasped but not holded for {holding_time}s.")
                         if control == 0: # if air pressure is controlled
                             print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
-                            errors[0] = True # trigger error for air pressure
+                            error_detected(btn_name="error_button", cell_nr=0)
                         elif control == 1: # if air pressure is constant
                             print(f"Triggering error for {DCN_names[0+1]} (PC{p_ids[0]+1}) and {DCN_names[1+1]} (PC{p_ids[1]+1})")
-                            errors[0] = True # trigger error for thumb
-                            errors[1] = True # trigger error for index finger
+                            error_detected(btn_name="error_thumb", cell_nr=0)
+                            error_detected(btn_name="error_index", cell_nr=1)
                         elif control == 2: # if air pressure is controlled
                             print(f"Triggering error for {DCN_names[0]} (PC{p_ids[0]+1})")
-                            errors[0] = True # trigger error for air pressure
+                            error_detected(btn_name="error_pressure", cell_nr=0)
                         elif control == 3: # holding force controlled via timing
-                            errors[3] = True # trigger error for flexion time of holding
-        for i, error in enumerate(errors):
-            if error:
-                update_inferior_olive_stimulation_and_plots(cell_nr=i)
-
+                            print(f"Triggering error for {DCN_names[2+2]} (PC{p_ids[2]+1})")
+                            error_detected(btn_name="error_holding", cell_nr=2)
+                        
     buttons["run_button"].color = color_run
     buttons["run_button"].hovercolor = color_run_hover
     buttons["run_button"].ax.figure.canvas.draw_idle()  # Force redraw
-    #plt.draw()
-    #plt.gcf().canvas.draw_idle()
-    #plt.gcf().canvas.flush_events()
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
     plt.pause(1)
@@ -845,57 +812,7 @@ def stimulate_inferior_olive_cell(i_id=0):
 def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
     """Stimulates a inferior olive and updates the plots"""
     global buttons, animations
-    # Change color of pressed error button to red
-    if control == 0: # Control air pressure
-        buttons["error_button"].color = color_error
-        buttons["error_button"].hovercolor = color_error_hover
-        buttons["error_button"].ax.figure.canvas.draw_idle()  # Force redraw
-    if control == 1: # Control inflation time
-        if cell_nr == 0: # Thumb
-            buttons["error_thumb"].color = color_error
-            buttons["error_thumb"].hovercolor = color_error_hover
-            buttons["error_thumb"].ax.figure.canvas.draw_idle()  # Force redraw
-        elif cell_nr == 1: # Index finger
-            buttons["error_index"].color = color_error
-            buttons["error_index"].hovercolor = color_error_hover
-            buttons["error_index"].ax.figure.canvas.draw_idle()  # Force redraw
-    if control == 2: # Control air pressure & inflation time
-        if cell_nr == 0: # Pressure
-            buttons["error_pressure"].color = color_error
-            buttons["error_pressure"].hovercolor = color_error_hover
-            buttons["error_pressure"].ax.figure.canvas.draw_idle()  # Force redraw
-        elif cell_nr == 1: # Thumb
-            buttons["error_thumb"].color = color_error
-            buttons["error_thumb"].hovercolor = color_error_hover
-            buttons["error_thumb"].ax.figure.canvas.draw_idle()  # Force redraw
-        elif cell_nr == 2: # Index finger
-            buttons["error_index"].color = color_error
-            buttons["error_index"].hovercolor = color_error_hover
-            buttons["error_index"].ax.figure.canvas.draw_idle()  # Force redraw 
-    if control == 3: # Control grasp & hold
-        if cell_nr == 0: # Thumb
-            buttons["error_thumb"].color = color_error
-            buttons["error_thumb"].hovercolor = color_error_hover
-            buttons["error_thumb"].ax.figure.canvas.draw_idle()  # Force redraw
-        elif cell_nr == 1: # Index finger
-            buttons["error_index"].color = color_error
-            buttons["error_index"].hovercolor = color_error_hover
-            buttons["error_index"].ax.figure.canvas.draw_idle()  # Force redraw
-        elif cell_nr == 2: # Opposition
-            buttons["error_opposition"].color = color_error
-            buttons["error_opposition"].hovercolor = color_error_hover
-            buttons["error_opposition"].ax.figure.canvas.draw_idle()  # Force redraw 
-        elif cell_nr == 3: # Holding Force
-            buttons["error_holding"].color = color_error
-            buttons["error_holding"].hovercolor = color_error_hover
-            buttons["error_holding"].ax.figure.canvas.draw_idle()  # Force redraw 
-    #plt.draw()
-    #plt.gcf().canvas.draw_idle()
-    #plt.gcf().canvas.flush_events()
-    fig.canvas.draw_idle()
-    fig.canvas.flush_events()
-    plt.pause(1)
-
+    
     if buttons["network_button"].label.get_text() == "Hide network":
         # Identify active purkinje cell
         b_id = 0
@@ -909,10 +826,9 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
             p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
             p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
         elif control == 3: # Control grasp & hold
-            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//4:2*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-            p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//4:3*num_purkinje//4] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
-            p_id_fourth = next((purkinje.gid for purkinje in purkinje_cells[3*num_purkinje//4:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_first = next((purkinje.gid for purkinje in purkinje_cells[:num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_second = next((purkinje.gid for purkinje in purkinje_cells[num_purkinje//3:2*num_purkinje//3] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
+            p_id_third = next((purkinje.gid for purkinje in purkinje_cells[2*num_purkinje//3:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None)
 
         # Run complex spike animation
         spike, = ax_network.plot([], [], marker='o', color=color_complex_spike, markersize=10)
@@ -926,8 +842,6 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
             p_ids.append(p_id_second)
         elif cell_nr == 2: # Trigger complex spike from IO 2
             p_ids.append(p_id_third)
-        elif cell_nr == 3: # Trigger complex spike from IO 3
-            p_ids.append(p_id_fourth)
         
         ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
         animations.append(ani)
@@ -962,6 +876,47 @@ def toggle_HW(event=None):
     else:
         release_actuator()
 
+def grasp_successfull(event=None):
+    """Clears all errors and changes colors of error buttons to default"""
+    global errors, buttons
+
+    try: # change color of "grasp successul" button
+        buttons["success_grasp"].color = color_run
+        buttons["success_grasp"].hovercolor = color_run_hover
+        buttons["success_grasp"].ax.figure.canvas.draw_idle()  # Force redraw
+    except KeyError: None
+    fig.canvas.draw_idle()
+    fig.canvas.flush_events()
+    plt.pause(1)
+
+    errors = [False for _ in errors] # reset all errors
+    change_back_error_button_colors()
+
+def error_detected(event=None, btn_name=None, cell_nr=None):
+    """Changes the color of the clicked error button and sets the correct error"""
+    global buttons, errors
+
+    if cell_nr != None and errors[cell_nr] == True: # if error is already set, reset error
+        errors[cell_nr] = False
+        color = "0.85"
+        hovercolor = "0.975"
+    else: # if error is not set, set error
+        if cell_nr != None:
+            errors[cell_nr] = True
+        color = color_error
+        hovercolor = color_error_hover
+
+    try: # change color of clicked error button
+        buttons[btn_name].color = color
+        buttons[btn_name].hovercolor = hovercolor
+        buttons[btn_name].ax.figure.canvas.draw_idle()  # Force redraw
+    except KeyError: None
+    fig.canvas.draw_idle()
+    fig.canvas.flush_events()
+    plt.draw()
+    plt.pause(1)
+    
+
 def toggle_control(event=None):
     """Toggle between controlling air pressure and inflation time"""
     global control, buttons
@@ -969,9 +924,9 @@ def toggle_control(event=None):
 
     control = next(i for i, value in control_dict.items() if value == buttons["control_button"].value_selected)
 
-    num_inferior_olive = control + 1
-    num_dcn =  control + 1
-    num_purkinje = 5 * (control + 1)
+    num_inferior_olive = control + 1 if control != 3 else control
+    num_dcn =  num_inferior_olive
+    num_purkinje = 5 * (num_dcn)
     
     reset(event=None, reset_all=False)
     if control_HW==1:
@@ -1012,61 +967,62 @@ def toggle_control(event=None):
         if "error_thumb" not in buttons:
             ax_thumb = fig.add_subplot(gs_error[0], label="error_thumb")
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 0
+            buttons["error_thumb"].on_clicked(lambda event: error_detected(event, btn_name="error_thumb", cell_nr=0)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
             ax_index = fig.add_subplot(gs_error[1], label="error_index")
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
-            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 1
+            buttons["error_index"].on_clicked(lambda event: error_detected(event, btn_name="error_index", cell_nr=1)) # stimulate IO cell 1
     
     elif control == 2: # Control air pressure & inflation time
         # Error Button for Air Pressure
         if "error_pressure" not in buttons:
             ax_pressure = fig.add_subplot(gs_error[0], label="error_pressure")
             buttons["error_pressure"] = Button(ax_pressure, "Error\nPressure")
-            buttons["error_pressure"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 2
+            buttons["error_pressure"].on_clicked(lambda event: error_detected(event, btn_name="error_pressure", cell_nr=0)) # stimulate IO cell 2
 
         # Error Button for Thumb
         if "error_thumb" not in buttons:
             ax_thumb = fig.add_subplot(gs_error[1], label="error_thumb")
             buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 0
+            buttons["error_thumb"].on_clicked(lambda event: error_detected(event, btn_name="error_thumb", cell_nr=1)) # stimulate IO cell 0
 
         # Error Button for Index Finger
         if "error_index" not in buttons:
             ax_index = fig.add_subplot(gs_error[2], label="error_index")
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
-            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=2)) # stimulate IO cell 1
+            buttons["error_index"].on_clicked(lambda event: error_detected(event, btn_name="error_index", cell_nr=2)) # stimulate IO cell 1
 
     elif control == 3: # Control grasp & hold
-        # Error Button for Thumb
-        if "error_thumb" not in buttons:
-            ax_thumb = fig.add_subplot(gs_error[0], label="error_thumb")
-            buttons["error_thumb"] = Button(ax_thumb, "Error\nThumb")
-            buttons["error_thumb"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=0)) # stimulate IO cell 0
-
         # Error Button for Index Finger
         if "error_index" not in buttons:
-            ax_index = fig.add_subplot(gs_error[1], label="error_index")
+            ax_index = fig.add_subplot(gs_error[0], label="error_index")
             buttons["error_index"] = Button(ax_index, "Error\nIndex")
-            buttons["error_index"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=1)) # stimulate IO cell 1
+            buttons["error_index"].on_clicked(lambda event: error_detected(event, btn_name="error_index", cell_nr=0)) # stimulate IO cell 1
 
         # Error Button for Opposition
         if "error_opposition" not in buttons:
-            ax_pressure = fig.add_subplot(gs_error[2], label="error_opposition")
+            ax_pressure = fig.add_subplot(gs_error[1], label="error_opposition")
             buttons["error_opposition"] = Button(ax_pressure, "Error\nOpposition")
-            buttons["error_opposition"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=2)) # stimulate IO cell 2
+            buttons["error_opposition"].on_clicked(lambda event: error_detected(event, btn_name="error_opposition", cell_nr=1)) # stimulate IO cell 2
 
-        # Error Button for Holding Force
-        if "error_holding" not in buttons:
-            ax_pressure = fig.add_subplot(gs_error[3], label="error_holding")
-            buttons["error_holding"] = Button(ax_pressure, "Error\nHolding")
-            buttons["error_holding"].on_clicked(lambda event: update_inferior_olive_stimulation_and_plots(event, cell_nr=3)) # stimulate IO cell 3
+        if state == 0: # Only grasping
+            # Success Button for Grasping
+            if "success_grasp" not in buttons:
+                ax_pressure = fig.add_subplot(gs_error[2], label="success_grasp")
+                buttons["success_grasp"] = Button(ax_pressure, "Grasp\nSuccessful")
+                buttons["success_grasp"].on_clicked(grasp_successfull)
+        else: # Grasp & Hold
+            # Error Button for Holding Force
+            if "error_holding" not in buttons:
+                ax_pressure = fig.add_subplot(gs_error[2], label="error_holding")
+                buttons["error_holding"] = Button(ax_pressure, "Error\nHolding")
+                buttons["error_holding"].on_clicked(lambda event: error_detected(event, btn_name="error_holding", cell_nr=2)) # stimulate IO cell 3
 
 def toggle_mode(event=None):
     """Toggle between manual and automatic feedback mode"""
-    global serial_con, mode
+    global serial_con, mode, sensor_references
 
     mode = next(i for i, value in mode_dict.items() if value == buttons["automatic_button"].value_selected)
     
@@ -1074,6 +1030,17 @@ def toggle_mode(event=None):
         # Open the serial connection to ESP32 (adjust COMx port or /dev/ttyUSBx)
         if serial_con is None:
             serial_con = serial.Serial('COM11', 115200, timeout=1)  # Adjust port if needed
+            time.sleep(1)
+            line = serial_con.readline().decode().strip()  # Read a line and decode it
+            while line.count(',') < 15:
+                line = serial_con.readline().decode().strip()  # Read a line and decode it
+                time.sleep(1) # small delay to wait for new sensor values
+            if line:
+                sensor_references = list(map(int, line.split(',')))  # Convert CSV to list of integers
+                [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
+                print(f"\rSensor reference values: FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
+        
+                        
 
 def toggle_network_graph(event=None):
     """Toggles between showing and hiding the network graph in the GUI"""
@@ -1278,7 +1245,15 @@ def show_network_graph():
     ax_network.text(purkinje_x[-1] + 0.15, olive_y[-1] + abs(purkinje_y - olive_y[-1]) / 2, "Climbing Fibers (CF)", fontsize=10, color=color_inferior_olive)
     ax_network.text(basket_x + 0.1, basket_y, "Basket Cell (BC)", fontsize=10, color=color_basket)
     for i in range(num_dcn):
-        ax_network.text(dcn_x[i] + 0.1, dcn_y, f"DCN{i+1}\n'{DCN_names[i + 1 if num_dcn == 2 or num_dcn == 4 else i]}'", fontsize=10, color=color_dcn)
+        if control == 0:
+            text = DCN_names[i]
+        elif control == 1:
+            text = DCN_names[1 + i]
+        elif control == 2:
+            text = DCN_names[1]
+        elif control == 3:
+            text = DCN_names[2 + i]
+        ax_network.text(dcn_x[i] + 0.1, dcn_y, f"DCN{i+1}\n'{text}'", fontsize=10, color=color_dcn)
 
     ax_network.set_xlim([0.0,6.0])
 
@@ -1527,7 +1502,15 @@ def update_spike_and_weight_plot():
 
             for i in range(num_dcn):
                 ax2 = ax_plots[1 + i]
-                ax2.set_title(f"Synaptic Weights\n'{DCN_names[i + 1 if num_dcn == 2 or num_dcn == 4 else i]}'")
+                if control == 0:
+                    text = DCN_names[i]
+                elif control == 1:
+                    text = DCN_names[1 + i]
+                elif control == 2:
+                    text = DCN_names[1]
+                elif control == 3:
+                    text = DCN_names[2 + i]
+                ax2.set_title(f"Synaptic Weights\n'{text}'")
                 ax2.set_xlabel("Time (ms)")
                 ax2.set_ylabel("Synaptic Weight")
 
