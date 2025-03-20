@@ -15,7 +15,7 @@ const int numSensors = numFlexSensors + numTouchSensors + numSoftTouchSensors;
 const int mux1numSensors = numFlexSensors + numTouchSensors;
 const int numReadings = 10;
 
-const int thresholdFlexSensor = 150;
+const int thresholdFlexSensor = 200;
 const int maxTouchSensor = 4095;
 const int maxSoftTouchSensor = 4095;
 
