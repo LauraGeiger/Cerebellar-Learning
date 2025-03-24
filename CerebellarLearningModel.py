@@ -142,9 +142,9 @@ def init_variables(reset_all=True):
     # --- Spikes and Weights ---
     weights = {}
     weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
-    pf_initial_weight = 0.01 # Parallel fiber initial weight
+    pf_initial_weight = 0.02 # Parallel fiber initial weight
     cf_initial_weight = 0.5 # Climbing fiber initial weight
-    basket_initial_weight = 0.5#0.1 # Basket to Purkinje weight
+    basket_initial_weight = 0.5 # Basket to Purkinje weight
     stimuli = []
     frequency = 50 # Hz
     processed_GC_spikes = { (g_gid): set() for g_gid in range(num_granule)} # store the processed granule cell spikes
@@ -155,7 +155,7 @@ def init_variables(reset_all=True):
     tau_plus = 1 
     tau_minus = 1.5
     A_plus = 0.05  
-    A_minus = 0.05
+    A_minus = 0.06
 
     # --- HW Paramaters ---
     # --- Actuator board ---
@@ -952,6 +952,7 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
 def update_state(event=None):
     """Update state variable"""
     global state, buttons
+    global pf_ncs, cf_ncs
 
     state = buttons["state_button"].index_selected if control == 3 else buttons["state_button"].index_selected + 1
     
@@ -967,6 +968,12 @@ def update_state(event=None):
             ax_success = fig.add_subplot(gs_error[3], label="success_grasp")
             buttons["success_grasp"] = Button(ax_success, "Grasp\nSuccessful")
             buttons["success_grasp"].on_clicked(grasp_successfull)
+
+            # Adapt GC->PC synapsis delay because PC gets more excitatory input because all GCs are active
+            for purkinje in purkinje_cells:
+                for granule in granule_cells:
+                    pf_ncs[granule.gid][purkinje.gid].delay = 0.9
+
         else: # Grasp & Hold
             try:
                 buttons["success_grasp"].disconnect_events()
@@ -976,6 +983,11 @@ def update_state(event=None):
             ax_holding = fig.add_subplot(gs_error[3], label="error_holding")
             buttons["error_holding"] = Button(ax_holding, "Error\nHolding")
             buttons["error_holding"].on_clicked(lambda event: error_detected(event, btn_name="error_holding", cell_nr=3)) # stimulate IO cell 4
+
+            # Reset GC->PC synapsis delay 
+            for purkinje in purkinje_cells:
+                for granule in granule_cells:
+                    pf_ncs[granule.gid][purkinje.gid].delay = 0
 
     if buttons["network_button"].label.get_text() == "Hide network":
         ax_network.cla() # clear network plot
@@ -1074,14 +1086,14 @@ def toggle_control(event=None):
         buttons["state_button"].ax.cla()
         buttons["state_button"] = RadioButtons(buttons["state_button"].ax, list(state_grasp_hold_dict.values()), active=0)
         buttons["state_button"].on_clicked(update_state)
-        update_state()
+        #update_state()
     else:
         if len(buttons["state_button"].labels) == 4:
             buttons["state_button"].disconnect_events()
             buttons["state_button"].ax.cla()
             buttons["state_button"] = RadioButtons(buttons["state_button"].ax, list(state_dict.values()), active=1)
             buttons["state_button"].on_clicked(update_state)
-            update_state()
+            #update_state()
 
     if control == 1: # Control inflation time, one inferior_olive needed for each finger
         # Error Button for Thumb
@@ -1144,6 +1156,7 @@ def toggle_control(event=None):
                 ax_holding = fig.add_subplot(gs_error[3], label="error_holding")
                 buttons["error_holding"] = Button(ax_holding, "Error\nHolding")
                 buttons["error_holding"].on_clicked(lambda event: error_detected(event, btn_name="error_holding", cell_nr=2)) # stimulate IO cell 3
+    update_state()
 
 def toggle_mode(event=None):
     """Toggle between manual and automatic feedback mode"""
@@ -1490,7 +1503,7 @@ def update_weights(pre_gid, post_gid, pre_t, post_t):
     new_weight = old_weight + dw
     
     if plasticity:
-        print(f"[{iter}] {plasticity}: weight change {old_weight:.3f}{'+' if dw>0 else ''}{dw:.3f}={new_weight:.3f} at synapses GC{pre_gid+1} <-> PC{post_gid+1}")
+        print(f"[{iter}] {plasticity}: weight change {old_weight:.4f}{'+' if dw>0 else ''}{dw:.4f}={new_weight:.4f} at synapses GC{pre_gid+1} <-> PC{post_gid+1}")
     
     # Update weight
     weights[(pre_gid, post_gid)] = new_weight
