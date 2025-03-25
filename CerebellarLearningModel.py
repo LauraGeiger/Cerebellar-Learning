@@ -173,7 +173,7 @@ def init_variables(reset_all=True):
     # --- Sensor board ---
     if 'serial_con' not in globals():
         serial_con = None # Init serial connection only once
-    hold_pressure_dict = {0: 30, 1: 20, 2: 30, 3: 100} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
+    hold_pressure_dict = {0: 30, 1: 30, 2: 45, 3: 100} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
     start_time_learning_grasping = None
     start_time_learning_holding = None
 
@@ -278,6 +278,8 @@ def create_connections():
     # Granule → Purkinje Connections (excitatory)
     for purkinje in purkinje_cells:
         random_weight = np.random.uniform(0,0.001)
+        if purkinje.gid in (1, 8, 12): ####################
+            random_weight += 0.001
         for granule in granule_cells:
             syn = h.Exp2Syn(purkinje.soma(0.5))
             syn.e = 0 # Excitatory
@@ -390,7 +392,7 @@ def grasp(time_thumb_flexion=1, time_index_flexion=5, time_index_extension = 0.5
     """Grasp object with variable timing for thumb and index finger flexion and thumb opposition"""
 
     time_thumb_extension = time_thumb_opposition # Thumb extension equivalent to thumb opposition
-
+    
     print(f"GRASPING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Thumb Extension {time_thumb_extension:.1f}s Thumb Opposition {time_thumb_opposition:.1f}s Index Finger Flexion {time_index_flexion:.1f}s Index Finger Extension {time_index_extension:.1f}s")
     control_actuator(pressure=pressure, time_thumb_flexion=time_thumb_flexion, time_index_flexion=time_index_flexion, time_thumb_opposition=time_thumb_opposition, time_thumb_extension=time_thumb_extension, time_index_extension=time_index_extension)
     
@@ -399,25 +401,23 @@ def hold(inflation_time=1, pressure=255):
     """Hold object with variable inflation_time, higher inflation_time correlates to higher pressure during holding"""
     
     time_index_flexion = inflation_time
-    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Index Finger Flexion {time_index_flexion:.1f}s")
-    control_actuator(pressure=pressure, time_index_flexion=time_index_flexion)
+    time_thumb_flexion = 0.1 #####
+
+    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s")
+    control_actuator(pressure=pressure, time_index_flexion=time_index_flexion, time_thumb_flexion=time_thumb_flexion)
     
 
 def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=None, time_thumb_opposition=None, time_thumb_extension=None, time_index_extension=None):
     """ Control air compressor and valves via Arduino board"""
     
-    if time_thumb_flexion is not None:
-        board.servo_config(Servo1_pin) # Flexion - Thumb
-        board.analog_write(Servo1_pin, Servo1_INLET)
-    if time_index_flexion is not None:
-        board.servo_config(Servo2_pin) # Flexion - Index Finger
-        board.analog_write(Servo2_pin, Servo2_INLET)
-    if time_thumb_extension is not None and time_index_extension is not None:
-        board.servo_config(Servo3_pin) # Opposition % Extension - Thumb
-        board.analog_write(Servo3_pin, Servo3_INLET)
-    if time_thumb_opposition is not None:
-        board.servo_config(Servo4_pin) # Extension - Index finger
-        board.analog_write(Servo4_pin, Servo4_INLET)
+    board.servo_config(Servo1_pin) # Flexion - Thumb
+    board.analog_write(Servo1_pin, Servo1_INLET)
+    board.servo_config(Servo2_pin) # Flexion - Index Finger
+    board.analog_write(Servo2_pin, Servo2_INLET)
+    board.servo_config(Servo3_pin) # Opposition % Extension - Thumb
+    board.analog_write(Servo3_pin, Servo3_INLET)
+    board.servo_config(Servo4_pin) # Extension - Index finger
+    board.analog_write(Servo4_pin, Servo4_INLET)
     
     board.sleep(2)
 
@@ -470,14 +470,10 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
     board.analog_write(COMP_pin, 0) # Stop inflation
 
     # Reset servo pins
-    if time_thumb_flexion is not None:
-        board.set_pin_mode(Servo1_pin, Constants.INPUT)
-    if time_index_flexion is not None:
-        board.set_pin_mode(Servo2_pin, Constants.INPUT)
-    if time_thumb_extension is not None and time_index_extension is not None:
-        board.set_pin_mode(Servo3_pin, Constants.INPUT)
-    if time_thumb_opposition is not None:
-        board.set_pin_mode(Servo4_pin, Constants.INPUT)
+    board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    board.set_pin_mode(Servo2_pin, Constants.INPUT)
+    board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    board.set_pin_mode(Servo4_pin, Constants.INPUT)
     
 def stimulate_granule_cell():
     """Stimulate Granule Cells Based on State"""
