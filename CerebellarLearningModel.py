@@ -143,7 +143,7 @@ def init_variables(reset_all=True):
     weights = {}
     weights_over_time = { (pre_gid, post_gid): [] for pre_gid in range(num_granule) for post_gid in range(num_purkinje) } # track weights over time
     pf_initial_weight = 0.02 # Parallel fiber initial weight
-    cf_initial_weight = 0.5 # Climbing fiber initial weight
+    cf_initial_weight = 0.3 # Climbing fiber initial weight
     basket_initial_weight = 0.5 # Basket to Purkinje weight
     stimuli = []
     frequency = 50 # Hz
@@ -173,7 +173,7 @@ def init_variables(reset_all=True):
     # --- Sensor board ---
     if 'serial_con' not in globals():
         serial_con = None # Init serial connection only once
-    hold_pressure_dict = {0: 30, 1: 30, 2: 45, 3: 100} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
+    hold_pressure_dict = {0: 35, 1: 30, 2: 45, 3: 100} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
     start_time_learning_grasping = None
     start_time_learning_holding = None
 
@@ -278,7 +278,7 @@ def create_connections():
     # Granule → Purkinje Connections (excitatory)
     for purkinje in purkinje_cells:
         random_weight = np.random.uniform(0,0.001)
-        if purkinje.gid in (1, 8, 12): ####################
+        if purkinje.gid in (3, 9, 10): ####################
             random_weight += 0.001
         for granule in granule_cells:
             syn = h.Exp2Syn(purkinje.soma(0.5))
@@ -341,7 +341,7 @@ def activate_highest_weight_PC(granule_gid):
     # Find the Purkinje cell with the highest weight
     for purkinje in purkinje_cells:
         try:
-            if v_purkinje_np[purkinje.gid][-1] > -55: # if membrane voltage is above 55 mV
+            if v_purkinje_np[purkinje.gid][-1] > -56: # if membrane voltage is above 55 mV
                 continue # Skip the blocked Purkinje cell
         except (NameError, IndexError):
             continue
@@ -371,10 +371,12 @@ def activate_highest_weight_PC(granule_gid):
 def release_actuator():
     """Releases air from tubes"""
     # Config servo pins
+    time.sleep(0.1)
     board.servo_config(Servo1_pin)
     board.servo_config(Servo2_pin) 
     board.servo_config(Servo3_pin)
     board.servo_config(Servo4_pin) 
+    time.sleep(0.1)
     # Set servos to outlet position to let air out
     board.analog_write(Servo1_pin, Servo1_OUTLET) # Release flexion thumb
     board.analog_write(Servo2_pin, Servo2_OUTLET) # Release flexion index finger
@@ -401,23 +403,32 @@ def hold(inflation_time=1, pressure=255):
     """Hold object with variable inflation_time, higher inflation_time correlates to higher pressure during holding"""
     
     time_index_flexion = inflation_time
-    time_thumb_flexion = 0.1 #####
+    time_thumb_flexion = inflation_time / 10.0 #####
 
-    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.1f}s Index Finger Flexion {time_index_flexion:.1f}s")
+    print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.2f}s Index Finger Flexion {time_index_flexion:.2f}s")
     control_actuator(pressure=pressure, time_index_flexion=time_index_flexion, time_thumb_flexion=time_thumb_flexion)
     
 
 def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=None, time_thumb_opposition=None, time_thumb_extension=None, time_index_extension=None):
     """ Control air compressor and valves via Arduino board"""
     
-    board.servo_config(Servo1_pin) # Flexion - Thumb
-    board.analog_write(Servo1_pin, Servo1_INLET)
-    board.servo_config(Servo2_pin) # Flexion - Index Finger
-    board.analog_write(Servo2_pin, Servo2_INLET)
-    board.servo_config(Servo3_pin) # Opposition % Extension - Thumb
-    board.analog_write(Servo3_pin, Servo3_INLET)
-    board.servo_config(Servo4_pin) # Extension - Index finger
-    board.analog_write(Servo4_pin, Servo4_INLET)
+    time.sleep(0.1) 
+    if time_thumb_flexion is not None:
+        board.servo_config(Servo1_pin) # Flexion - Thumb
+        time.sleep(0.1) 
+        board.analog_write(Servo1_pin, Servo1_INLET)
+    if time_index_flexion is not None:
+        board.servo_config(Servo2_pin) # Flexion - Index Finger
+        time.sleep(0.1) 
+        board.analog_write(Servo2_pin, Servo2_INLET)
+    if time_thumb_opposition is not None or time_thumb_extension is not None:
+        board.servo_config(Servo3_pin) # Opposition % Extension - Thumb
+        time.sleep(0.1) 
+        board.analog_write(Servo3_pin, Servo3_INLET)
+    if time_index_extension is not None:
+        board.servo_config(Servo4_pin) # Extension - Index finger
+        time.sleep(0.1) 
+        board.analog_write(Servo4_pin, Servo4_INLET)    
     
     board.sleep(2)
 
@@ -470,11 +481,15 @@ def control_actuator(pressure=None, time_thumb_flexion=None, time_index_flexion=
     board.analog_write(COMP_pin, 0) # Stop inflation
 
     # Reset servo pins
-    board.set_pin_mode(Servo1_pin, Constants.INPUT)
-    board.set_pin_mode(Servo2_pin, Constants.INPUT)
-    board.set_pin_mode(Servo3_pin, Constants.INPUT)
-    board.set_pin_mode(Servo4_pin, Constants.INPUT)
-    
+    if time_thumb_flexion is not None:
+        board.set_pin_mode(Servo1_pin, Constants.INPUT)
+    if time_index_flexion is not None:
+        board.set_pin_mode(Servo2_pin, Constants.INPUT)
+    if time_thumb_opposition is not None or time_thumb_extension is not None:
+        board.set_pin_mode(Servo3_pin, Constants.INPUT)
+    if time_index_extension is not None:
+        board.set_pin_mode(Servo4_pin, Constants.INPUT)
+   
 def stimulate_granule_cell():
     """Stimulate Granule Cells Based on State"""
     
@@ -807,6 +822,7 @@ def update_granule_stimulation_and_plots(event=None):
                 if control == 3:
                     if control_HW == 1:
                         time_flexion_holding = pc_inflation_time_mapping[p_ids[-1]] if p_ids[-1] is not None else 0 # look up table for purkinje cell to voltage mapping
+                        time_flexion_holding -= pc_inflation_time_mapping[0] #####
                         hold(inflation_time=time_flexion_holding)
                 try:
                     line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
@@ -1665,7 +1681,7 @@ def update_spike_and_weight_plot():
                 for purkinje in purkinje_cells:
                     text_blocked = ""
                     try:
-                        if v_purkinje_np[purkinje.gid][-1] > -55:
+                        if v_purkinje_np[purkinje.gid][-1] > -56:
                             text_blocked = " blocked"
                     except IndexError: None
 
