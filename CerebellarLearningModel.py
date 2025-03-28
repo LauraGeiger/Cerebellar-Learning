@@ -89,7 +89,7 @@ def init_variables(reset_all=True):
         ["Air Pressure"], 
         ["Timing Thumb Flexion", "Timing Index Finger Flexion"], 
         ["Air Pressure", "Timing Thumb Flexion", "Timing Index Finger Flexion"], 
-        ["Timing Thumb\nOpposition & Extension", "Timing Index Finger\nFlexion", "Timing Index Finger\nExtension", "Timing Index Finger\nFlexion for Holding"]
+        ["Timing Thumb\nOpposition & Extension", "Timing Index Finger\nFlexion", "Timing Index Finger\nExtension", "Timing Flexion\nfor Holding"]
     ]
     
     # --- Colors ---
@@ -278,8 +278,6 @@ def create_connections():
     # Granule → Purkinje Connections (excitatory)
     for purkinje in purkinje_cells:
         random_weight = np.random.uniform(0,0.001)
-        if purkinje.gid in (3, 9, 10): ####################
-            random_weight += 0.001
         for granule in granule_cells:
             syn = h.Exp2Syn(purkinje.soma(0.5))
             syn.e = 0 # Excitatory
@@ -625,9 +623,10 @@ def update_granule_stimulation_and_plots(event=None):
             for p in p_ids:
                 spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
                 spikes.append(spike)
-        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 20, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
         animations.append(ani)
-        plt.pause(4)
+        plt.pause(3)
+        time.sleep(2)
     
     stimulate_granule_cell()
     run_simulation()
@@ -641,35 +640,9 @@ def update_granule_stimulation_and_plots(event=None):
 
     # --- Control of actuator ---
     if control_HW:
-        #print("Releasing air...")
         release_actuator()
 
         board.sleep(1)
-        '''
-        try: # Read pressure sensors            
-            PS1_val = board.analog_read(PS1_pin)
-            PS2_val = board.analog_read(PS2_pin)
-            PS1_voltage = PS1_val * 5 / 1023
-            PS2_voltage = PS2_val * 5 / 1023
-            print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
-        except Exception as e:
-            print(f"Not able to read pressure sensor values: {e}")'
-        '''
-
-        '''
-        if mode == 1: # sensor feedback
-            serial_con.flushInput() # delete values in serial input buffer
-            time.sleep(0.1)
-            line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
-            while line and line.count(',') < 15:
-                line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
-                time.sleep(0.1) # small delay to wait for new sensor values
-            if line:
-                sensor_references = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
-                #[FS_T1, FS_I1, FS_T2, FS_I2, FS_T3, FS_I3, FS_T4, FS_I4, FS_T5, FS_I5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
-                print(f"\rSensor reference values: FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
-        '''
 
         if control == 0: # Control air pressure
             air_pressure = pc_air_pressure_mapping[p_ids[0]] if p_ids[0] is not None else 0 # look up table for purkinje cell to voltage mapping
@@ -690,16 +663,6 @@ def update_granule_stimulation_and_plots(event=None):
             grasp(time_thumb_opposition=time_thumb_opposition, time_index_flexion=time_index_flexion, time_index_extension=time_index_extension)
         
         board.sleep(1)
-        '''
-        try: # Read pressure sensors            
-            PS1_val = board.analog_read(PS1_pin)
-            PS2_val = board.analog_read(PS2_pin)
-            PS1_voltage = PS1_val * 5 / 1023
-            PS2_voltage = PS2_val * 5 / 1023
-            print(f"PS1: {PS1_voltage:.2f}V, PS2: {PS2_voltage:.2f}V")
-        except Exception as e:
-            print(f"Not able to read pressure sensor values: {e}")'
-        '''
 
     # --- Trigger error based on sensor feedback ---
     if mode == 1:
@@ -773,12 +736,6 @@ def update_granule_stimulation_and_plots(event=None):
                                 btn_name = "error_index_flexion" if random_cell_nr == 1 else "error_index_extension"
                                 error_detected(btn_name=btn_name, cell_nr=random_cell_nr)
                             break
-                        #elif (STS_T - sensor_references[-4]) > 4 and (STS_I - sensor_references[-1]) > 4: # Object successful grasped
-                        #    applied_pressure = ((STS_T - sensor_references[-4]) + (STS_I - sensor_references[-1])) / 2.0
-                        #    print(f"\nGrasping successfull, applied pressure={applied_pressure:.1f}% detected with soft touch sensors")
-                        #    grasping = True
-                        #    grasp_successfull()
-                        #    break
                         else: # Grasping not successfull
                             if control == 0:
                                 if errors[0] == False and any (value > 0 for value in [FS_T1, FS_I1, FS_T2, FS_I2, FS_T3, FS_I3, FS_T4, FS_I4, FS_T5, FS_I5]): # Grasping not successfull
@@ -835,8 +792,6 @@ def update_granule_stimulation_and_plots(event=None):
                         applied_pressure = 0
                         if TS_T > 0 or TS_I > 0: # Object detected with touch sensors
                             applied_pressure = (TS_T + TS_I) / 2.0
-                        #elif (STS_T - sensor_references[-4]) > 5 or (STS_I - sensor_references[-1]) > 5: # Object detected with soft touch sensors
-                        #    applied_pressure = ((STS_T - sensor_references[-4]) + (STS_I - sensor_references[-1])) / 2.0
                         print(f"Ready for holding, applied pressure={applied_pressure:.1f}%")
                 except Exception: None
                 
@@ -854,12 +809,6 @@ def update_granule_stimulation_and_plots(event=None):
                             print(f"FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
                             grasping = True
                             errors = [False for _ in errors] # reset all errors
-                        #elif (STS_T - sensor_references[-4]) > 5 or (STS_I - sensor_references[-1]) > 5: # Object successful holded
-                        #    applied_pressure = ((STS_T - sensor_references[-4]) + (STS_I - sensor_references[-1])) / 2.0
-                        #    print(f"\nHolding successfull, applied pressure={applied_pressure:.1f}% detected with soft touch sensors")
-                        #    print(f"FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
-                        #    grasping = True
-                        #    errors = [False for _ in errors] # reset all errors
                         elif TS_T > 0 or TS_I > 0: # Object holded but too much pressure applied
                             print(f"\nObject holded but too much pressure applied ({applied_pressure:.1f}%>{hold_pressure_dict[state]}%).")
                             if control == 3:
@@ -954,9 +903,10 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         elif cell_nr == 3: # Trigger complex spike from IO 3
             p_ids.append(p_id_fourth)
         
-        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 50, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 20, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
         animations.append(ani)
-        plt.pause(4)
+        plt.pause(3)
+        time.sleep(2)
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
     
@@ -1062,7 +1012,6 @@ def error_detected(event=None, btn_name=None, cell_nr=None):
     plt.pause(1)
     time.sleep(0.1)
     
-
 def toggle_control(event=None):
     """Toggle between controlling air pressure and inflation time"""
     global control, buttons, gs_error
@@ -1180,19 +1129,7 @@ def toggle_mode(event=None):
     if mode == 1: # Trigger error automatically based on sensor feedback
         # Open the serial connection to ESP32 (adjust COMx port or /dev/ttyUSBx)
         if serial_con is None:
-            serial_con = serial.Serial('COM11', 115200, timeout=1)  # Adjust port if needed
-            '''
-            time.sleep(0.1)
-            line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
-            while line and line.count(',') < 15:
-                line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
-                time.sleep(0.1) # small delay to wait for new sensor values
-            if line:
-                sensor_references = list(map(int, line.split(',')))  # Convert CSV to list of integers
-                [FS_I1, FS_T1, FS_I2, FS_T2, FS_I3, FS_T3, FS_I4, FS_T4, FS_I5, FS_T5, TS_T, TS_I, STS_T, STS_P, STS_M, STS_I] = sensor_references # Flexsensors: FS_x, Touchsensors: TS_x, SoftTouchsensors: STS_x , T (Thumb), P (Palm), M (Middle Finger), I (Index Finger)
-                print(f"\rSensor reference values: FS_I1={FS_I1} FS_T1={FS_T1} FS_I2={FS_I2} FS_T2={FS_T2} FS_I3={FS_I3} FS_T3={FS_T3} FS_I4={FS_I4} FS_T4={FS_T4} FS_I5={FS_I5} FS_T5={FS_T5} TS_T={TS_T} TS_I={TS_I} STS_T={STS_T} STS_I={STS_I}")
-            '''
-                        
+            serial_con = serial.Serial('COM11', 115200, timeout=1)  # Adjust port if needed                        
 
 def toggle_network_graph(event=None):
     """Toggles between showing and hiding the network graph in the GUI"""
@@ -1211,7 +1148,7 @@ def toggle_network_graph(event=None):
         
     update_spike_and_weight_plot()
 
-def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=0.01):
+def draw_purkinje(ax, x, y, width=0.2, height=1, color='orange', line_width=0.01):
     """Draws a Purkinje neuron with dendrites and a separate soma."""
     purkinje_drawing = []
 
@@ -1219,8 +1156,8 @@ def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=0.01
     for i in range(num_granule):  # Branching
         top_width =  (line_width[i] if np.isscalar(line_width) is not True else line_width)
         triangle = patches.Polygon([
-            (x + (i-1) * width - top_width / 2, y + (i+1) * width),  # Left top
-            (x + (i-1) * width + top_width / 2, y + (i+1) * width),  # Right top
+            (x + (i-1) * (width if i > 0 else width/2) - top_width / 2, y + (i+1) * width),  # Left top
+            (x + (i-1) * (width if i > 0 else width/2) + top_width / 2, y + (i+1) * width),  # Right top
             (x, y)  # Bottom center
         ], closed=True, color=color, alpha=0.6)  # Slight transparency
 
@@ -1239,7 +1176,7 @@ def draw_purkinje(ax, x, y, width=0.3, height=3, color='orange', line_width=0.01
 
 def draw_parallel_fiber(ax, x, y, length=5, transparency=1):
     """Draws a parallel fiber extending across Purkinje cells."""
-    ax.plot([x - length / 20, x + length], [y , y], color=color_granule, lw=2, alpha=transparency)
+    ax.plot([x - length / 30, x + length], [y , y], color=color_granule, lw=2, alpha=transparency)
 
 def draw_granule_to_parallel(ax, x, y_start, y_end, transparency):
     """Draws a granule cell axon that ascends vertically and forms a parallel fiber."""
@@ -1249,17 +1186,30 @@ def draw_granule_to_parallel(ax, x, y_start, y_end, transparency):
 def draw_climbing_fiber(ax, x, y_start, y_end, width=0.3):
     """Draws a climbing fiber from the Inferior Olive wrapping around a Purkinje cell."""
 
-    ax.plot([x + 0.1, x + 0.1], [y_start, y_end - 0.1], color=color_inferior_olive, lw=2, label="Climbing Fiber")
-    ax.plot([x, x + 0.1], [y_end, y_end - 0.1], color=color_inferior_olive, lw=2, label="Climbing Fiber")
-    t = np.linspace(0, 1, 100)
+    ax.plot([x + 0.15, x + 0.15], [y_start, y_end - 0.15], color=color_inferior_olive, lw=2, label="Climbing Fiber")
+    ax.plot([x, x + 0.15], [y_end, y_end - 0.15], color=color_inferior_olive, lw=2, label="Climbing Fiber")
 
     for i in range(num_granule):  # Branching
         branch_x_start = x
-        branch_x_end = x + (i-1) * width
+        branch_x_end = x + (i-1) * (width if i > 0 else width/2)
         branch_y_start = y_end
         branch_y_end = y_end + (i+1) * width
-        x_vals = branch_x_start + (branch_x_end - branch_x_start) * t + 0.05 * np.sin(10 * np.pi * t)  # Wavy pattern for wrapping
-        y_vals = branch_y_start + (branch_y_end - branch_y_start) * t + 0.05 * np.sin(10 * np.pi * t)
+
+        dx = branch_x_end - branch_x_start
+        dy = branch_y_end - branch_y_start
+        length = np.sqrt(dx**2 + dy**2)  
+        if length == 0:
+            continue  # Avoid division by zero
+
+        t = np.linspace(0, length, 100)
+        wave = 0.015 * np.sin(15 * np.pi * t)
+
+        # Compute unit direction
+        ux, uy = dx / length, dy / length  # Unit vector along branch
+        nx, ny = -uy, ux  # Perpendicular vector for wave oscillation
+        x_vals = branch_x_start + ux * t + wave * nx
+        y_vals = branch_y_start + uy * t + wave * ny
+
         ax.plot(x_vals, y_vals, color=color_inferior_olive, lw=1, label="Climbing Fiber")
 
 def calculate_dcn_x_positions(purkinje_x, num_dcn):
@@ -1307,8 +1257,8 @@ def update_weights_in_network():
                 top_width = triangle_widths[j, i]
                 # Update triangle shape
                 new_xy = [
-                    (x + (j-1) * width - top_width / 2, y + (j+1) * width),  # Left top
-                    (x + (j-1) * width + top_width / 2, y + (j+1) * width),  # Right top
+                    (x + (j-1) * (width if j > 0 else width/2) - top_width / 2, y + (j+1) * width),  # Left top
+                    (x + (j-1) * (width if j > 0 else width/2) + top_width / 2, y + (j+1) * width),  # Right top
                     (x, y)  # Bottom center
                 ]
                 triangle.set_xy(new_xy)  # Update vertices
@@ -1324,10 +1274,10 @@ def show_network_graph():
     purkinje_drawing = []
 
     height = 1
-    width = 0.3
+    width = 0.2
 
-    granule_x = np.linspace(0.25, 0.75, num_granule)
-    purkinje_x = np.linspace(1.25, 4.5, num_purkinje)
+    granule_x = np.linspace(0.15, 0.5, num_granule)
+    purkinje_x = np.linspace(0.9, 4.8, num_purkinje)
     olive_x = purkinje_x[-1] + 0.4
     basket_x = purkinje_x[-1] + 0.4
     dcn_x = calculate_dcn_x_positions(purkinje_x, num_dcn)
@@ -1341,7 +1291,7 @@ def show_network_graph():
     # Draw Inferior Olive cell
     for inferior_olive in inferior_olive_cells:
         first_purkinje = next((purkinje for purkinje in purkinje_cells if cf_ncs[inferior_olive.gid][purkinje.gid] is not None), 0) # find first connected PC, default PC0
-        ax_network.plot([purkinje_x[first_purkinje.gid]+0.1, olive_x], [olive_y[inferior_olive.gid], olive_y[inferior_olive.gid]], color=color_inferior_olive, lw=2, label="Climbing Fiber")
+        ax_network.plot([purkinje_x[first_purkinje.gid]+0.15, olive_x], [olive_y[inferior_olive.gid], olive_y[inferior_olive.gid]], color=color_inferior_olive, lw=2, label="Climbing Fiber")
         ax_network.scatter(olive_x, olive_y[inferior_olive.gid], s=100, color=color_inferior_olive, label="Inferior Olive")
 
     # Draw Basket cell connecting to Purkinje cell somas
@@ -1384,18 +1334,19 @@ def show_network_graph():
             ax_network.plot([purkinje_x[start_idx], purkinje_x[end_idx-1]], [purkinje_y-height, purkinje_y-height], color=color_dcn, lw=2, label=f'Segment {i+1}')
 
     # Labels
-    ax_network.text(purkinje_x[0] - 0.35, purkinje_y - 0.5, "Purkinje\nCells", fontsize=10, color=colors_purkinje[0])
+    ax_network.text(purkinje_x[0] - 0.25, purkinje_y - 0.3, "Purkinje\nCells (PC)", fontsize=10, color=colors_purkinje[0])
     for purkinje in purkinje_cells:
-        ax_network.text(purkinje_x[purkinje.gid] - 0.1, purkinje_y - 0.2, f"PC{purkinje.gid+1}", fontsize=10, color=colors_purkinje[purkinje.gid])
-    ax_network.text(granule_x[0] - 0.1, granule_y - 0.4, "Granule Cells", fontsize=10, color=color_granule)
+        ax_network.text(purkinje_x[purkinje.gid] + 0.01, purkinje_y - 0.2, f"PC{purkinje.gid+1}", fontsize=10, color=colors_purkinje[purkinje.gid])
+    ax_network.text(granule_x[0] - 0.05, granule_y - 0.4, "Granule Cells (GC)", fontsize=10, color=color_granule)
     for granule in granule_cells:
-        ax_network.text(granule_x[granule.gid] - 0.1, granule_y - 0.2, f"GC{granule.gid+1}", fontsize=10, color=color_granule)
+        ax_network.text(granule_x[granule.gid] - 0.05, granule_y - 0.2, f"GC{granule.gid+1}", fontsize=10, color=color_granule)
     ax_network.text(granule_x[1], purkinje_y + (num_granule) * width + 0.1, "Parallel Fibers (PF)", fontsize=10, color=color_granule)
-    ax_network.text(olive_x + 0.1, olive_y[0] - 0.2, "Inferior Olives", fontsize=10, color=color_inferior_olive)
+    ax_network.text(olive_x + 0.1, olive_y[0] - 0.2, "Inferior Olives (IO)", fontsize=10, color=color_inferior_olive)
     for inferior_olive in inferior_olive_cells:
-        ax_network.text(olive_x + 0.1, olive_y[inferior_olive.gid], f"IO{inferior_olive.gid+1}", fontsize=10, color=color_inferior_olive)
-    ax_network.text(purkinje_x[-1] + 0.15, olive_y[-1] + abs(purkinje_y - olive_y[-1]) / 2, "Climbing Fibers (CF)", fontsize=10, color=color_inferior_olive)
-    ax_network.text(basket_x + 0.1, basket_y, "Basket Cell (BC)", fontsize=10, color=color_basket)
+        ax_network.text(olive_x + 0.1, olive_y[inferior_olive.gid] - 0.04, f"IO{inferior_olive.gid+1}", fontsize=10, color=color_inferior_olive)
+    ax_network.text(purkinje_x[-1] + 0.2, olive_y[-1] + abs(purkinje_y - olive_y[-1]) / 2, "Climbing Fibers (CF)", fontsize=10, color=color_inferior_olive)
+    ax_network.text(basket_x + 0.1, basket_y - 0.01, "Basket Cell (BC)", fontsize=10, color=color_basket)
+    ax_network.text(dcn_x[0] - 0.4, dcn_y, f"Deep Cerebellar\nNuclei (DCN)", fontsize=10, color=color_dcn)
     for i in range(num_dcn):
         if control == 0:
             text = DCN_names[control][i]
@@ -1405,7 +1356,7 @@ def show_network_graph():
             text = DCN_names[control][1]
         elif control == 3:
             text = DCN_names[control][i]
-        ax_network.text(dcn_x[i] + 0.1, dcn_y, f"DCN{i+1}\n'{text}'", fontsize=10, color=color_dcn)
+        ax_network.text(dcn_x[i] + 0.05, dcn_y, f"DCN{i+1}\n'{text}'", fontsize=10, color=color_dcn)
 
     ax_network.set_xlim([0.0,6.0])
 
@@ -1418,7 +1369,6 @@ def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
     """Spike animation for simple spikes and complex spikes"""
     # Animation parameters
     total_steps = 30  # Total frames in animation
-    segment_steps = total_steps // 3  # Frames per segment
     
     for idx, spike in enumerate(spikes):
         # For each spike, get corresponding p_id and g_or_i_id
@@ -1428,29 +1378,40 @@ def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
         # Determine start and end positions based on spike type
         if spike_type == 1:  # Complex Spike from Inferior Olive
             start_x, start_y = olive_x, olive_y[g_or_i_id]
-            junction1_x, junction1_y = purkinje_x[p_id] + 0.1, start_y
-            junction2_x, junction2_y = junction1_x, purkinje_y - 0.1
+            junction1_x, junction1_y = purkinje_x[p_id] + 0.15, start_y
+            junction2_x, junction2_y = junction1_x, purkinje_y - 0.15
         else:  # Simple Spike from Granule Cell
             start_x, start_y = granule_x[g_or_i_id], granule_y
             junction1_x, junction1_y = start_x, purkinje_y + (g_or_i_id + 1) * width
-            junction2_x, junction2_y = purkinje_x[p_id] + (g_or_i_id - 1) * width, junction1_y
+            junction2_x, junction2_y = purkinje_x[p_id] + (g_or_i_id - 1) * (width if g_or_i_id > 0 else width/2), junction1_y
         end_x, end_y = purkinje_x[p_id], purkinje_y
 
+        # Compute segment lengths
+        d1 = np.hypot(junction1_x - start_x, junction1_y - start_y)
+        d2 = np.hypot(junction2_x - junction1_x, junction2_y - junction1_y)
+        d3 = np.hypot(end_x - junction2_x, end_y - junction2_y)
+        D_total = d1 + d2 + d3
+
+        # Allocate frames proportionally
+        segment_steps1 = round(total_steps * (d1 / D_total))
+        segment_steps2 = round(total_steps * (d2 / D_total))
+        segment_steps3 = total_steps - (segment_steps1 + segment_steps2)
+
         # Determine current segment and compute clamped t
-        if frame < segment_steps:  # Move to Junction 1
-            t = ((frame + 1) / segment_steps)
+        if frame < segment_steps1:  # Move to Junction 1
+            t = ((frame + 1) / segment_steps1)
             t = min(max(t, 0), 1)  # Ensure t is in [0,1]
             x_new = start_x + t * (junction1_x - start_x)
             y_new = start_y + t * (junction1_y - start_y)
 
-        elif frame < 2 * segment_steps:  # Move to Junction 2
-            t = ((frame + 1 - segment_steps) / segment_steps)
+        elif frame < segment_steps1 + segment_steps2:  # Move to Junction 2
+            t = ((frame + 1 - segment_steps1) / segment_steps2)
             t = min(max(t, 0), 1)  # Ensure t is in [0,1]
             x_new = junction1_x + t * (junction2_x - junction1_x)
             y_new = junction1_y + t * (junction2_y - junction1_y)
 
         else:  # Move to Purkinje Cell
-            t = ((frame + 1 - 2 * segment_steps) / segment_steps)
+            t = ((frame + 1 - segment_steps1 - segment_steps2) / segment_steps3)
             t = min(max(t, 0), 1)  # Ensure t is in [0,1]
             x_new = junction2_x + t * (end_x - junction2_x)
             y_new = junction2_y + t * (end_y - junction2_y)
@@ -1489,9 +1450,6 @@ def reset(event=None, reset_all=True):
     buttons["run_button"].color = color_run
     buttons["run_button"].hovercolor = color_run_hover
     buttons["run_button"].ax.figure.canvas.draw_idle()  # Force redraw
-    #plt.draw()
-    #plt.gcf().canvas.draw_idle()
-    #plt.gcf().canvas.flush_events()
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
     plt.pause(1)
@@ -1518,9 +1476,8 @@ def update_weights(pre_gid, post_gid, pre_t, post_t):
     if plasticity:
         print(f"[{iter}] {plasticity}: weight change {old_weight:.4f}{'+' if dw>0 else ''}{dw:.4f}={new_weight:.4f} at synapses GC{pre_gid+1} <-> PC{post_gid+1}")
     
-    # Update weight
+    # Update weights
     weights[(pre_gid, post_gid)] = new_weight
-    # Update netcon weight
     pf_ncs[pre_gid][post_gid].weight[0] = new_weight
     
 def recording():
@@ -1567,9 +1524,6 @@ def run_simulation(error=False):
         buttons["run_button"].color = "0.85"
         buttons["run_button"].hovercolor = "0.975"
         buttons["run_button"].ax.figure.canvas.draw_idle()  # Force redraw
-        #plt.draw()
-        #plt.gcf().canvas.draw_idle()
-        #plt.gcf().canvas.flush_events()
         fig.canvas.draw_idle()
         fig.canvas.flush_events()
         plt.pause(1)
@@ -1613,7 +1567,6 @@ def run_simulation(error=False):
                     while len(weights_over_time[(g_id, p_id)]) < len(t):
                         weights_over_time[(g_id, p_id)].append(weights[(g_id, p_id)])
  
-
     # --- Convert Spike Data ---
     spike_times =      {f"GC{i+1}": list(granule_spikes[i])       for i in range(num_granule)}
     spike_times.update({f"PC{i+1}": list(purkinje_spikes[i])      for i in range(num_purkinje)})
@@ -1663,7 +1616,6 @@ def update_spike_and_weight_plot():
             ax1.set_xlabel("Time (ms)") 
             ax1.set_ylabel("Membrane Voltage (mV)")
     
-
             for i in range(num_dcn):
                 ax2 = ax_plots[1 + i]
                 if control == 0:
@@ -1810,9 +1762,6 @@ def main(reset=True):
     buttons["run_button"].color = color_run
     buttons["run_button"].hovercolor = color_run_hover
     buttons["run_button"].ax.figure.canvas.draw_idle()  # Force redraw
-    #plt.draw()
-    #plt.gcf().canvas.draw_idle()
-    #plt.gcf().canvas.flush_events()
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
     plt.pause(1)
