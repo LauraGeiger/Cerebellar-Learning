@@ -610,32 +610,10 @@ def update_granule_stimulation_and_plots(event=None):
         if state > 0:
             p_ids.append(next((purkinje.gid for purkinje in purkinje_cells[3*num_purkinje//4:] if inh_ncs[b_id][purkinje.gid].weight[0] == 0), None))
 
-    if buttons["network_button"].label.get_text() == "Hide network":
-        # Run simple spike animation
-        spikes = []
-        if state > 0:
-            g_ids = [state-1] 
-        else:
-            g_ids = [g_id for g_id in range(num_granule)]
-        
-
-        for g in g_ids:
-            for p in p_ids:
-                spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
-                spikes.append(spike)
-        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 20, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
-        animations.append(ani)
-        plt.pause(3)
-        time.sleep(2)
-    
     stimulate_granule_cell()
     run_simulation()
     iter += 1
     buttons["run_button"].label.set_text(f"Run iteration {iter}")
-
-    if buttons["network_button"].label.get_text() == "Hide network":
-        update_weights_in_network()
-
     update_spike_and_weight_plot()
 
     # --- Control of actuator ---
@@ -663,6 +641,25 @@ def update_granule_stimulation_and_plots(event=None):
             grasp(time_thumb_opposition=time_thumb_opposition, time_index_flexion=time_index_flexion, time_index_extension=time_index_extension)
         
         board.sleep(1)
+
+    if buttons["network_button"].label.get_text() == "Hide network":
+        # Run simple spike animation
+        spikes = []
+        if state > 0:
+            g_ids = [state-1] 
+        else:
+            g_ids = [g_id for g_id in range(num_granule)]
+        
+
+        for g in g_ids:
+            for p in p_ids:
+                spike, = ax_network.plot([], [], marker='o', color=color_simple_spike, markersize=10)
+                spikes.append(spike)
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=60, interval = 20, blit=True, repeat=False, fargs=(spikes, 0, p_ids*len(g_ids), g_ids*len(p_ids)))
+        animations.append(ani)
+        plt.pause(5)
+        #time.sleep(2)
+        update_weights_in_network()        
 
     # --- Trigger error based on sensor feedback ---
     if mode == 1:
@@ -903,10 +900,10 @@ def update_inferior_olive_stimulation_and_plots(event=None, cell_nr=0):
         elif cell_nr == 3: # Trigger complex spike from IO 3
             p_ids.append(p_id_fourth)
         
-        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=30, interval = 20, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
+        ani = animation.FuncAnimation(ax_network.figure, update_animation, frames=60, interval = 20, blit=True, repeat=False, fargs=(spikes, 1, p_ids, i_ids))
         animations.append(ani)
-        plt.pause(3)
-        time.sleep(2)
+        plt.pause(5)
+        #time.sleep(2)
         
     stimulate_inferior_olive_cell(i_id=cell_nr)
     
@@ -1368,7 +1365,7 @@ def show_network_graph():
 def update_animation(frame, spikes, spike_type=0, p_ids=[], g_or_i_ids=[]):
     """Spike animation for simple spikes and complex spikes"""
     # Animation parameters
-    total_steps = 30  # Total frames in animation
+    total_steps = 60  # Total frames in animation
     
     for idx, spike in enumerate(spikes):
         # For each spike, get corresponding p_id and g_or_i_id

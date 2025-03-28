@@ -44,15 +44,15 @@ Install dependencies using:
 2. Modify settings using the GUI.
 
 ### With HW Control
-1. Connect to the **Soft Robotics Edu. Toolkit** designed by John Nassour.
-2. Upload the `StandardFirmata.ino` file to the **Arduino**.
-3. Optional: Run `Arduino_SoftRoboticsEduToolkit.py` to check toolkit functionality.
+1. Upload the `StandardFirmata.ino` file to the **Arduino** to control the **Soft Robotics Edu. Toolkit** designed by John Nassour.
+2. Optional: Run `Arduino_SoftRoboticsEduToolkit.py` to check toolkit functionality.
     **Note:** Change port (e.g. port = "COM8") to match your computer.
     ```
     python .\Arduino_HelloWorld.py
     ```
+3. Upload the `ESP32_FlexAndTouchSensors.ino` file to the **ESP32** to receive sensor signals.
 4. Run `CerebellarLearningModel.py`.
-    **Note:** Change port (e.g. port = "COM8") to match your computer.
+    **Note:** Change ports (e.g. port = "COM8" for **Arduino** and port = "COM11" for ESP32) to match your computer.
     ```
     python .\CerebellarLearningModel.py
     ```
