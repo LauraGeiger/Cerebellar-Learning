@@ -52,7 +52,7 @@ Install dependencies using:
     ```
 3. Upload the `ESP32_FlexAndTouchSensors.ino` file to the **ESP32** to receive sensor signals.
 4. Run `CerebellarLearningModel.py`.
-    **Note:** Change ports (e.g. port = "COM8" for **Arduino** and port = "COM11" for ESP32) to match your computer.
+    **Note:** Change ports (e.g. port = "COM8" for **Arduino** and port = "COM11" for **ESP32**) to match your computer.
     ```
     python .\CerebellarLearningModel.py
     ```
