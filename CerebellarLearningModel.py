@@ -401,7 +401,7 @@ def hold(inflation_time=1, pressure=255):
     """Hold object with variable inflation_time, higher inflation_time correlates to higher pressure during holding"""
     
     time_index_flexion = inflation_time
-    time_thumb_flexion = inflation_time / 10.0 #####
+    time_thumb_flexion = inflation_time / 10.0
 
     print(f"HOLDING: Air pressure: {pressure:.0f} ({int(pressure/255.0*100)}%) Inflation times: Thumb Flexion {time_thumb_flexion:.2f}s Index Finger Flexion {time_index_flexion:.2f}s")
     control_actuator(pressure=pressure, time_index_flexion=time_index_flexion, time_thumb_flexion=time_thumb_flexion)
@@ -776,7 +776,7 @@ def update_granule_stimulation_and_plots(event=None):
                 if control == 3:
                     if control_HW == 1:
                         time_flexion_holding = pc_inflation_time_mapping[p_ids[-1]] if p_ids[-1] is not None else 0 # look up table for purkinje cell to voltage mapping
-                        time_flexion_holding -= pc_inflation_time_mapping[0] #####
+                        time_flexion_holding -= pc_inflation_time_mapping[0]
                         hold(inflation_time=time_flexion_holding)
                 try:
                     line = serial_con.readline().decode(errors='ignore').strip()  # Read a line and decode it
