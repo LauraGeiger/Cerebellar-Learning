@@ -213,8 +213,8 @@ def init_HW():
 
     # Servos
     Servo1_pin = 2 # connect to Flexion of Thumb
-    Servo2_pin = 3 # connect to Extension of Thumb
-    Servo3_pin = 4 # connect to Flexion of Index Finger
+    Servo2_pin = 3 # connect to Flexion of Index Finger 
+    Servo3_pin = 4 # connect to Opposition & Extension of Thumb
     Servo4_pin = 5 # connect to Extension of Index Finger
     # Define angles for servo motors
     Servo1_OUTLET = 110
