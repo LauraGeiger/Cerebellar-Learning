@@ -173,7 +173,7 @@ def init_variables(reset_all=True):
     # --- Sensor board ---
     if 'serial_con' not in globals():
         serial_con = None # Init serial connection only once
-    hold_pressure_dict = {0: 35, 1: 30, 2: 45, 3: 100} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
+    hold_pressure_dict = {0: 35, 1: 30, 2: 45, 3: 60} # maximum allowed pressure for grasping (0), holding light object (1), holding medium object (2), holding heavy object (3)  
     start_time_learning_grasping = None
     start_time_learning_holding = None
 
