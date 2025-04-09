@@ -12,7 +12,6 @@ import serial
 from pymata_aio.pymata3 import PyMata3
 from pymata_aio.constants import Constants
 
-
 # using Python 3.10.16
 
 # --- Granule, Purkinje, Inferior Olive, and Basket Cell Classes ---
